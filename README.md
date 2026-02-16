@@ -8,6 +8,7 @@ https://signal-mesh.onrender.com/
 - Implemented secure user authentication using JWT and encrypted password storage with bcrypt
 - Developed live presence tracking, file attachments, emoji support, and broadcast messaging architecture
 - Architected full-duplex client-server communication with scalable WebSocket connection handling
+- Deployed globally on Render using environment-based configuration
 
 ### Tools
 - FastAPI
