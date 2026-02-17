@@ -2,7 +2,7 @@
   --bg:#071129;
   --panel:#091427;
   --muted:#9fb0c8;
-  --accent:#8b5cf6; /* brighter purple for contrast */
+  --accent:#8b5cf6;
   --glass: rgba(255,255,255,0.03);
   --me-bg: linear-gradient(135deg,#4361ee,#8b5cf6);
   --other-bg: linear-gradient(135deg,#0f1724,#071129);
@@ -38,19 +38,23 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 .header-username{font-weight:700}
 .typing-indicator{font-size:13px;color:var(--muted);min-width:120px;text-align:right}
 
-/* Chat box - CRITICAL mobile fixes */
+/* Chat box - mobile-friendly */
 .chat-box{
   flex:1;
-  min-height:0;                /* critical for mobile flex overflow */
+  min-height:0;                /* critical */
   overflow-y:auto;
   -webkit-overflow-scrolling: touch;
   padding:16px;
-  padding-bottom: calc(var(--composer-h) + var(--composer-padding) + 20px); /* ensure messages not hidden */
+  padding-bottom: calc(var(--composer-h) + var(--composer-padding) + 20px);
   display:flex;
   flex-direction:column;
   gap:12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.08) transparent;
+
+  /* make sure touch pans are allowed */
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 .chat-box::-webkit-scrollbar{width:10px}
 .chat-box::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:8px}
@@ -65,7 +69,7 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 .msg.me{background:var(--me-bg);color:white;border-bottom-right-radius:6px}
 .msg.other{background:var(--other-bg);color:#dbe9ff;border-bottom-left-radius:6px}
 
-/* Composer - fixed and centered with safe width */
+/* Composer - fixed and centered */
 .composer{
   display:flex;gap:10px;align-items:center;padding:12px;border-top:1px solid rgba(255,255,255,0.02);
   position:fixed;
@@ -88,7 +92,7 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 
 /* Modal (contrast improved) */
 .modal{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;padding:12px;z-index:2000}
-.modal-card{background:#071624; /* slightly lighter than background */ padding:18px;border-radius:12px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(2,6,23,0.7);display:flex;flex-direction:column;gap:10px}
+.modal-card{background:#071624;padding:18px;border-radius:12px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(2,6,23,0.7);display:flex;flex-direction:column;gap:10px}
 .modal-card input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#0a1724;color:#e6eef8}
 .pill{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;cursor:pointer;color:#e6eef8}
 .pill.active{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.06)}
@@ -109,6 +113,3 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
   .message-input{font-size:16px;min-height:48px}
   .emoji-picker{right:8px;bottom:calc(var(--composer-h) + 8px)}
 }
-
-/* ensure chat has bottom padding so messages aren't hidden under composer */
-.chat-box{padding-bottom: calc(var(--composer-h) + var(--composer-padding));}
