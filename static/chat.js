@@ -306,6 +306,21 @@
     }
   })();
 
+  // ===== Additional mobile fixes requested (keyboard/resize handling) =====
+  // Ensure chat auto-scrolls when the viewport resizes (keyboard open/close) and on input focus.
+  window.addEventListener("resize", () => {
+    setTimeout(() => {
+      try { chatBox.scrollTop = chatBox.scrollHeight; } catch(e){}
+    }, 200);
+  });
+
+  messageInput.addEventListener("focus", () => {
+    setTimeout(() => {
+      try { chatBox.scrollTop = chatBox.scrollHeight; } catch(e){}
+    }, 300);
+  });
+  // ======================================================================
+
   // close sockets on unload
   window.addEventListener("beforeunload", ()=> { try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){} });
 
