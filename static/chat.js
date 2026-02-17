@@ -266,18 +266,17 @@
     if(window.PointerEvent){
       let active = false, startY = 0, startScroll = 0, activeId = null;
       chatBox.addEventListener('pointerdown', function(e){
-        // only left mouse / single touch / primary pointer
         if(e.isPrimary === false) return;
         active = true; activeId = e.pointerId;
         startY = e.clientY; startScroll = chatBox.scrollTop;
-        chatBox.setPointerCapture(activeId);
+        try { chatBox.setPointerCapture(activeId); } catch(_){}
       }, {passive:false});
 
       chatBox.addEventListener('pointermove', function(e){
         if(!active || e.pointerId !== activeId) return;
         const dy = e.clientY - startY;
         chatBox.scrollTop = startScroll - dy;
-        e.preventDefault(); // keep page from scrolling while dragging in chatBox
+        e.preventDefault();
       }, {passive:false});
 
       chatBox.addEventListener('pointerup', function(e){
@@ -300,7 +299,6 @@
         if(!touching || e.touches.length !== 1) return;
         const dy = e.touches[0].clientY - startY;
         chatBox.scrollTop = startScroll - dy;
-        // do not call preventDefault here — allow natural behavior where appropriate
       }, {passive:true});
 
       chatBox.addEventListener('touchend', () => { touching = false; }, {passive:true});
