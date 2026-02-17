@@ -20,10 +20,8 @@
 
       <div class="users-section">
         <div class="section-title">Online</div>
-
         <div id="user-count" class="muted small">Online: 0 users</div>
         <div id="viewer-count" class="muted small">Viewers: 0 total</div>
-
         <ul id="users-list" class="users-list" aria-live="polite"></ul>
       </div>
 
@@ -41,6 +39,7 @@
 
       <section id="chat-box" class="chat-box" aria-live="polite" tabindex="0"></section>
 
+      <!-- composer is fixed via CSS so it's outside flow; keep markup here for semantics -->
       <form id="message-form" class="composer" onsubmit="return false;">
         <div class="left-controls">
           <button type="button" id="emoji-btn" class="icon-btn" title="Emoji" aria-label="Emoji">😀</button>
