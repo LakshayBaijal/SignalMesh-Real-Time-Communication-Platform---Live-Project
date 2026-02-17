@@ -52,7 +52,7 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.08) transparent;
 
-  /* make sure touch pans are allowed */
+  /* allow vertical panning and contain overscroll */
   touch-action: pan-y;
   overscroll-behavior-y: contain;
 }
@@ -69,20 +69,21 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 .msg.me{background:var(--me-bg);color:white;border-bottom-right-radius:6px}
 .msg.other{background:var(--other-bg);color:#dbe9ff;border-bottom-left-radius:6px}
 
-/* Composer - fixed and centered */
+/* Composer - fixed and centered without transform */
 .composer{
   display:flex;gap:10px;align-items:center;padding:12px;border-top:1px solid rgba(255,255,255,0.02);
   position:fixed;
-  left:50%;
-  transform:translateX(-50%);
+  left:16px;
+  right:16px;
   bottom:env(safe-area-inset-bottom,0);
-  width:calc(min(1100px,100%) - 32px);
+  width:auto;
   max-width:1100px;
+  margin:0 auto;
   box-sizing:border-box;
   background:linear-gradient(180deg, rgba(2,6,23,0.95), rgba(2,6,23,0.98));
   height:var(--composer-h);
   z-index:1000;
-  border-radius:0 0 12px 12px;
+  border-radius:8px 8px 12px 12px;
 }
 .left-controls{display:flex;gap:8px;align-items:center}
 #attach-btn{background:transparent;border:none;color:inherit;padding:8px;border-radius:10px}
