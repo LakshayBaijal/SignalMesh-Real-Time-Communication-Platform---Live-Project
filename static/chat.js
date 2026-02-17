@@ -1,4 +1,4 @@
-// static/chat.js - mobile-optimized: textarea autosize, sidebar toggle, keyboard safe
+// static/chat.js - mobile-optimized, fixed scrolling, auth contrast & UX tweaks
 (() => {
   const host = location.host;
   const protocol = (location.protocol === "https:") ? "wss://" : "ws://";
@@ -7,7 +7,7 @@
   // DOM refs
   const usersListEl = document.getElementById("users-list");
   const chatBox = document.getElementById("chat-box");
-  const messageInput = document.getElementById("message-input"); // textarea
+  const messageInput = document.getElementById("message-input");
   const sendBtn = document.getElementById("send-btn");
   const typingIndicator = document.getElementById("typing-indicator");
   const headerUser = document.getElementById("header-username");
@@ -27,7 +27,6 @@
   const toggleSignup = document.getElementById("toggle-signup");
   const continueGuest = document.getElementById("continue-guest");
   const authError = document.getElementById("auth-error");
-  const authTitle = document.getElementById("auth-title");
 
   // state
   let anonSocket = null;
@@ -37,19 +36,19 @@
   let mode = "login";
   let users = {};
 
-  // small helpers
+  // helpers
   function nowTime(){ const d = new Date(); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
   function randomColorFromName(name){ const palette = ["#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#7c3aed","#ec4899"]; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))|0; return palette[Math.abs(h)%palette.length]; }
   function escapeHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
-  // autosize for textarea
+  // autosize textarea
   function autosizeTextarea(el){
     el.style.height = "auto";
     const max = 180;
     el.style.height = Math.min(max, el.scrollHeight) + "px";
   }
 
-  // scroll helpers
+  // reliable scroll to bottom
   function scrollToBottom(behavior='auto'){
     try {
       chatBox.scrollTo({ top: chatBox.scrollHeight, behavior });
@@ -58,7 +57,7 @@
     }
   }
 
-  // render user list
+  // render users
   function renderUsers(){
     usersListEl.innerHTML = "";
     Object.values(users).forEach(u=>{
@@ -69,7 +68,7 @@
     });
   }
 
-  // message add: use row wrapper so bubble never shrinks
+  // append message row + bubble
   function addRawMessage(name, text, mine=false){
     const row = document.createElement("div");
     row.className = "msg-row " + (mine ? "me" : "other");
@@ -83,16 +82,16 @@
     bubble.appendChild(meta); bubble.appendChild(content); row.appendChild(bubble);
     chatBox.appendChild(row);
 
-    // keep view at bottom
-    scrollToBottom();
+    // ensure the new message is visible
+    scrollToBottom('auto');
   }
 
   function addSystemNotice(text){
     const e = document.createElement("div"); e.style.textAlign="center"; e.style.color="var(--muted)"; e.style.fontSize="13px"; e.textContent=text;
-    chatBox.appendChild(e); scrollToBottom();
+    chatBox.appendChild(e); scrollToBottom('auto');
   }
 
-  // handle messages from server
+  // handle server messages
   function handleServerData(data){
     let obj = null;
     try { obj = JSON.parse(data); } catch(e){ obj = null; }
@@ -106,12 +105,10 @@
     if(obj && obj.type){
       if(obj.type === "join"){
         users[obj.name] = {name: obj.name, color: obj.color || randomColorFromName(obj.name), lastSeen: "online"};
-        renderUsers();
-        addSystemNotice(`${obj.name} joined`);
+        renderUsers(); addSystemNotice(`${obj.name} joined`);
       } else if(obj.type === "leave"){
         if(users[obj.name]) users[obj.name].lastSeen = "left";
-        renderUsers();
-        addSystemNotice(`${obj.name} left`);
+        renderUsers(); addSystemNotice(`${obj.name} left`);
       } else if(obj.type === "typing"){
         typingIndicator.textContent = `${obj.name} is typing…`;
         clearTimeout(window._typingTimeout); window._typingTimeout = setTimeout(()=> typingIndicator.textContent = "", 1400);
@@ -134,7 +131,7 @@
     }
   }
 
-  // connect anonymous socket for viewing
+  // anonymous socket
   function connectAnon(){
     try {
       anonSocket = new WebSocket(anonWsUrl);
@@ -144,7 +141,7 @@
     anonSocket.addEventListener("close", ()=>{ console.log("anon socket closed"); });
   }
 
-  // connect authenticated socket
+  // auth socket
   function connectAuth(tkn, name){
     token = tkn; username = name;
     const url = protocol + host + "/ws/" + token;
@@ -155,9 +152,17 @@
     authSocket.addEventListener("close", ()=>{ headerUser.textContent = "Disconnected — viewing as guest"; authSocket = null; if(!anonSocket || anonSocket.readyState !== WebSocket.OPEN) connectAnon(); });
   }
 
-  // auth form logic
-  toggleLogin.onclick = ()=>{ mode="login"; authTitle.textContent="Login to World Chat"; authError.textContent=""; }
-  toggleSignup.onclick = ()=>{ mode="signup"; authTitle.textContent="Create an account"; authError.textContent=""; }
+  // auth UI state helpers
+  function setMode(m){
+    mode = m;
+    toggleLogin.classList.toggle('active', m==='login');
+    toggleSignup.classList.toggle('active', m==='signup');
+    authTitle.textContent = m==='login' ? "Login to World Chat" : "Create an account";
+    authError.textContent = "";
+  }
+
+  toggleLogin.onclick = ()=> setMode('login');
+  toggleSignup.onclick = ()=> setMode('signup');
 
   async function doAuth(){
     const u = authUsername.value.trim(); const p = authPassword.value.trim();
@@ -181,7 +186,7 @@
   authPassword.addEventListener("keydown", (e)=>{ if(e.key==="Enter") doAuth(); });
   continueGuest.onclick = ()=>{ authModal.style.display = "none"; headerUser.textContent = "Viewing as guest"; }
 
-  // file upload + attach button
+  // file upload/attach
   attachBtn.addEventListener("click", ()=> fileInput.click());
   fileInput.addEventListener("change", async ()=>{
     const file = fileInput.files[0]; if(!file) return;
@@ -213,7 +218,7 @@
     } catch(err){ messageInput.value += "😊"; autosizeTextarea(messageInput); }
   };
 
-  // send message logic (textarea)
+  // send message
   function sendMessage(){
     const text = messageInput.value.trim();
     if(!text) return;
@@ -237,10 +242,9 @@
     }
   });
 
-  // sidebar toggle on mobile
+  // sidebar mobile toggle
   usersToggle.addEventListener("click", ()=>{
-    if(sidebar.classList.contains("open")) sidebar.classList.remove("open");
-    else sidebar.classList.add("open");
+    sidebar.classList.toggle("open");
   });
 
   // close sidebar when clicking outside (mobile)
@@ -252,19 +256,19 @@
     }
   });
 
-  // handle viewport changes to keep input visible on mobile keyboards
+  // handle keyboard viewport for mobile to keep composer visible
   function adjustForVisualViewport(){
     if(window.visualViewport){
       const vv = window.visualViewport;
-      vv.addEventListener('resize', ()=> { setTimeout(()=> scrollToBottom('auto'), 50); });
-      vv.addEventListener('scroll', ()=> { setTimeout(()=> scrollToBottom('auto'), 50); });
+      vv.addEventListener('resize', ()=> { setTimeout(()=> scrollToBottom('auto'), 60); });
+      vv.addEventListener('scroll', ()=> { setTimeout(()=> scrollToBottom('auto'), 60); });
     } else {
       messageInput.addEventListener('focus', ()=> setTimeout(()=> scrollToBottom('smooth'), 250));
     }
   }
   adjustForVisualViewport();
 
-  // on beforeunload close auth socket
+  // ensure sockets closed on unload
   window.addEventListener("beforeunload", ()=>{
     try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){}
   });
@@ -275,6 +279,6 @@
   authUsername.focus();
   autosizeTextarea(messageInput);
 
-  // expose small helper
+  // expose some helpers (debug)
   window.signalmesh = { addRawMessage, scrollToBottom };
 })();
