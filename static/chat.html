@@ -39,7 +39,7 @@
         <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
       </header>
 
-      <section id="chat-box" class="chat-box" aria-live="polite"></section>
+      <section id="chat-box" class="chat-box" aria-live="polite" tabindex="0"></section>
 
       <form id="message-form" class="composer" onsubmit="return false;">
         <div class="left-controls">
@@ -64,13 +64,13 @@
       <h2 id="auth-title">Welcome — Sign in or Sign up</h2>
 
       <div style="display:flex;gap:8px;">
-        <button id="toggle-login" class="pill">Login</button>
+        <button id="toggle-login" class="pill active">Login</button>
         <button id="toggle-signup" class="pill">Sign up</button>
       </div>
 
       <div id="auth-forms" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-        <input id="auth-username" placeholder="username" maxlength="32" />
-        <input id="auth-password" placeholder="password" type="password" maxlength="64" />
+        <input id="auth-username" placeholder="username" maxlength="32" autocomplete="username" />
+        <input id="auth-password" placeholder="password" type="password" maxlength="64" autocomplete="current-password" />
         <div style="display:flex;gap:8px;">
           <button id="auth-submit" class="primary" style="flex:1">Proceed</button>
           <button id="continue-guest" style="flex:1">Continue as guest</button>
