@@ -1,4 +1,4 @@
-// robust mobile scrolling + fixed composer + touch fallback
+// robust mobile scrolling: pointer-event fallback + fixed composer without transform
 (() => {
   const host = location.host;
   const protocol = (location.protocol === "https:") ? "wss://" : "ws://";
@@ -49,7 +49,7 @@
     el.style.height = Math.min(max, el.scrollHeight) + "px";
   }
 
-  // reliable scroll to bottom (small delay)
+  // reliable scroll to bottom (small delay to allow layout)
   function scrollToBottom(behavior='auto'){
     setTimeout(()=> {
       try { chatBox.scrollTo({ top: chatBox.scrollHeight, behavior }); }
@@ -260,30 +260,52 @@
   }
   adjustForVisualViewport();
 
-  // touch fallback: implement drag-to-scroll for chatBox (helps devices that don't forward scroll)
-  (function enableTouchScrollFallback(){
-    let touching = false;
-    let startY = 0;
-    let startScroll = 0;
-    chatBox.addEventListener('touchstart', (e) => {
-      if(e.touches.length !== 1) return;
-      touching = true;
-      startY = e.touches[0].clientY;
-      startScroll = chatBox.scrollTop;
-    }, {passive: true});
+  // Pointer/touch fallback for dragging scroll inside chatBox
+  (function enablePointerDragScroll(){
+    // prefer Pointer Events
+    if(window.PointerEvent){
+      let active = false, startY = 0, startScroll = 0, activeId = null;
+      chatBox.addEventListener('pointerdown', function(e){
+        // only left mouse / single touch / primary pointer
+        if(e.isPrimary === false) return;
+        active = true; activeId = e.pointerId;
+        startY = e.clientY; startScroll = chatBox.scrollTop;
+        chatBox.setPointerCapture(activeId);
+      }, {passive:false});
 
-    chatBox.addEventListener('touchmove', (e) => {
-      if(!touching) return;
-      if(e.touches.length !== 1) return;
-      const dy = e.touches[0].clientY - startY;
-      // invert delta because moving finger down should scroll up (native behavior)
-      chatBox.scrollTop = startScroll - dy;
-      // prevent default browser overscroll on some devices
-      e.preventDefault();
-    }, {passive: false});
+      chatBox.addEventListener('pointermove', function(e){
+        if(!active || e.pointerId !== activeId) return;
+        const dy = e.clientY - startY;
+        chatBox.scrollTop = startScroll - dy;
+        e.preventDefault(); // keep page from scrolling while dragging in chatBox
+      }, {passive:false});
 
-    chatBox.addEventListener('touchend', () => { touching = false; }, {passive: true});
-    chatBox.addEventListener('touchcancel', () => { touching = false; }, {passive: true});
+      chatBox.addEventListener('pointerup', function(e){
+        if(e.pointerId !== activeId) return;
+        active = false; try { chatBox.releasePointerCapture(e.pointerId); } catch(_) {}
+      }, {passive:true});
+
+      chatBox.addEventListener('pointercancel', function(e){
+        active = false; try { chatBox.releasePointerCapture(e.pointerId); } catch(_) {}
+      }, {passive:true});
+    } else {
+      // touch fallback
+      let touching = false, startY = 0, startScroll = 0;
+      chatBox.addEventListener('touchstart', (e) => {
+        if(e.touches.length !== 1) return;
+        touching = true; startY = e.touches[0].clientY; startScroll = chatBox.scrollTop;
+      }, {passive:true});
+
+      chatBox.addEventListener('touchmove', (e) => {
+        if(!touching || e.touches.length !== 1) return;
+        const dy = e.touches[0].clientY - startY;
+        chatBox.scrollTop = startScroll - dy;
+        // do not call preventDefault here — allow natural behavior where appropriate
+      }, {passive:true});
+
+      chatBox.addEventListener('touchend', () => { touching = false; }, {passive:true});
+      chatBox.addEventListener('touchcancel', () => { touching = false; }, {passive:true});
+    }
   })();
 
   // close sockets on unload
