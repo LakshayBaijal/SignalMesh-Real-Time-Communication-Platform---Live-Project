@@ -29,9 +29,6 @@
   const authError = document.getElementById("auth-error");
   const authTitle = document.getElementById("auth-title");
 
-  // guest popup (not included here - keep previous behavior)
-  const mustAuthPopup = document.getElementById("must-auth-popup");
-
   // state
   let anonSocket = null;
   let authSocket = null;
@@ -54,7 +51,6 @@
 
   // scroll helpers
   function scrollToBottom(behavior='auto'){
-    // slight delay helps mobile browsers when keyboard opens
     try {
       chatBox.scrollTo({ top: chatBox.scrollHeight, behavior });
     } catch (e) {
@@ -96,7 +92,7 @@
     chatBox.appendChild(e); scrollToBottom();
   }
 
-  // handle messages from server (same as before)
+  // handle messages from server
   function handleServerData(data){
     let obj = null;
     try { obj = JSON.parse(data); } catch(e){ obj = null; }
@@ -159,7 +155,7 @@
     authSocket.addEventListener("close", ()=>{ headerUser.textContent = "Disconnected — viewing as guest"; authSocket = null; if(!anonSocket || anonSocket.readyState !== WebSocket.OPEN) connectAnon(); });
   }
 
-  // auth form logic (same flow as before)
+  // auth form logic
   toggleLogin.onclick = ()=>{ mode="login"; authTitle.textContent="Login to World Chat"; authError.textContent=""; }
   toggleSignup.onclick = ()=>{ mode="signup"; authTitle.textContent="Create an account"; authError.textContent=""; }
 
@@ -183,7 +179,7 @@
 
   authSubmit.onclick = doAuth;
   authPassword.addEventListener("keydown", (e)=>{ if(e.key==="Enter") doAuth(); });
-  continueGuest.onclick = ()=>{ authModal.style.display="none"; headerUser.textContent="Viewing as guest"; }
+  continueGuest.onclick = ()=>{ authModal.style.display = "none"; headerUser.textContent = "Viewing as guest"; }
 
   // file upload + attach button
   attachBtn.addEventListener("click", ()=> fileInput.click());
@@ -192,15 +188,14 @@
     const form = new FormData(); form.append("file", file);
     try {
       const res = await fetch("/upload", {method:"POST", body: form});
-      if(!res.ok){ console.error("upload failed"); return; }
+      if(!res.ok){ console.error("upload failed"); alert("Upload failed"); return; }
       const data = await res.json();
       if(authSocket && authSocket.readyState === WebSocket.OPEN){
         authSocket.send(JSON.stringify({type:"file", name: username, url: data.url, filename: data.filename}));
       } else {
-        // not authenticated: prompt briefly
         alert("Sign in to send attachments");
       }
-    } catch(e){ console.error("upload error", e); }
+    } catch(e){ console.error("upload error", e); alert("Upload error"); }
     finally { fileInput.value = ""; }
   });
 
@@ -232,6 +227,7 @@
   }
 
   sendBtn.addEventListener("click", sendMessage);
+  messageInput.addEventListener("input", ()=> autosizeTextarea(messageInput));
   messageInput.addEventListener("keydown", (e)=>{
     if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); }
     else {
@@ -260,13 +256,9 @@
   function adjustForVisualViewport(){
     if(window.visualViewport){
       const vv = window.visualViewport;
-      vv.addEventListener('resize', ()=> {
-        // small delay to let layout settle
-        setTimeout(()=> scrollToBottom('auto'), 50);
-      });
+      vv.addEventListener('resize', ()=> { setTimeout(()=> scrollToBottom('auto'), 50); });
       vv.addEventListener('scroll', ()=> { setTimeout(()=> scrollToBottom('auto'), 50); });
     } else {
-      // fallback: on focus, scroll to bottom
       messageInput.addEventListener('focus', ()=> setTimeout(()=> scrollToBottom('smooth'), 250));
     }
   }
@@ -277,12 +269,12 @@
     try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){}
   });
 
-  // init: connect anonymous and show auth modal
+  // init
   connectAnon();
   authModal.style.display = "flex";
   authUsername.focus();
   autosizeTextarea(messageInput);
 
-  // expose small helper for other code
+  // expose small helper
   window.signalmesh = { addRawMessage, scrollToBottom };
 })();
