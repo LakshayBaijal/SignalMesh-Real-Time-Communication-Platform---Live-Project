@@ -1,4 +1,4 @@
-// improved mobile scrolling + fixed composer + contrast tweaks
+// robust mobile scrolling + fixed composer + touch fallback
 (() => {
   const host = location.host;
   const protocol = (location.protocol === "https:") ? "wss://" : "ws://";
@@ -49,7 +49,7 @@
     el.style.height = Math.min(max, el.scrollHeight) + "px";
   }
 
-  // reliable scroll to bottom (small delay for mobile)
+  // reliable scroll to bottom (small delay)
   function scrollToBottom(behavior='auto'){
     setTimeout(()=> {
       try { chatBox.scrollTo({ top: chatBox.scrollHeight, behavior }); }
@@ -57,7 +57,7 @@
     }, 60);
   }
 
-  // render user list
+  // render users
   function renderUsers(){
     usersListEl.innerHTML = "";
     Object.values(users).forEach(u=>{
@@ -149,7 +149,7 @@
     authSocket.addEventListener("close", ()=>{ headerUser.textContent = "Disconnected — viewing as guest"; authSocket = null; if(!anonSocket || anonSocket.readyState !== WebSocket.OPEN) connectAnon(); });
   }
 
-  // auth UI state
+  // auth UI
   function setMode(m){
     mode = m;
     toggleLogin.classList.toggle('active', m==='login');
@@ -157,7 +157,6 @@
     authTitle.textContent = m==='login' ? "Login to World Chat" : "Create an account";
     authError.textContent = "";
   }
-
   toggleLogin.onclick = ()=> setMode('login');
   toggleSignup.onclick = ()=> setMode('signup');
 
@@ -241,8 +240,6 @@
 
   // mobile sidebar toggle
   usersToggle.addEventListener("click", ()=> sidebar.classList.toggle("open"));
-
-  // close sidebar when clicking outside (mobile)
   document.addEventListener("click", (ev)=>{
     if(window.innerWidth <= 880){
       if(!sidebar.contains(ev.target) && !usersToggle.contains(ev.target)){
@@ -251,7 +248,7 @@
     }
   });
 
-  // adjust when soft keyboard resizes viewport
+  // adjust for visual viewport
   function adjustForVisualViewport(){
     if(window.visualViewport){
       const vv = window.visualViewport;
@@ -263,7 +260,33 @@
   }
   adjustForVisualViewport();
 
-  // ensure sockets closed on unload
+  // touch fallback: implement drag-to-scroll for chatBox (helps devices that don't forward scroll)
+  (function enableTouchScrollFallback(){
+    let touching = false;
+    let startY = 0;
+    let startScroll = 0;
+    chatBox.addEventListener('touchstart', (e) => {
+      if(e.touches.length !== 1) return;
+      touching = true;
+      startY = e.touches[0].clientY;
+      startScroll = chatBox.scrollTop;
+    }, {passive: true});
+
+    chatBox.addEventListener('touchmove', (e) => {
+      if(!touching) return;
+      if(e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - startY;
+      // invert delta because moving finger down should scroll up (native behavior)
+      chatBox.scrollTop = startScroll - dy;
+      // prevent default browser overscroll on some devices
+      e.preventDefault();
+    }, {passive: false});
+
+    chatBox.addEventListener('touchend', () => { touching = false; }, {passive: true});
+    chatBox.addEventListener('touchcancel', () => { touching = false; }, {passive: true});
+  })();
+
+  // close sockets on unload
   window.addEventListener("beforeunload", ()=> { try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){} });
 
   // init
@@ -272,6 +295,6 @@
   authUsername.focus();
   autosizeTextarea(messageInput);
 
-  // expose helpers
+  // expose for debug
   window.signalmesh = { addRawMessage, scrollToBottom };
 })();
