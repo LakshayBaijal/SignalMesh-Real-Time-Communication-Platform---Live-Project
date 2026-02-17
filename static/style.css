@@ -72,7 +72,8 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 /* Composer - fixed and centered without transform */
 .composer{
   display:flex;gap:10px;align-items:center;padding:12px;border-top:1px solid rgba(255,255,255,0.02);
-  position:fixed;
+  position: relative;
+  flex-shrink: 0;
   left:16px;
   right:16px;
   bottom:env(safe-area-inset-bottom,0);
@@ -114,3 +115,4 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
   .message-input{font-size:16px;min-height:48px}
   .emoji-picker{right:8px;bottom:calc(var(--composer-h) + 8px)}
 }
+
