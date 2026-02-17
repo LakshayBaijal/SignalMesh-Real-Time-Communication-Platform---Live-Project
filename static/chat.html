@@ -9,9 +9,9 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Online users">
       <div class="brand">
-        <div class="logo">🌍</div>
+        <div class="logo" aria-hidden="true">🌍</div>
         <div>
           <div class="title">SignalMesh</div>
           <div class="subtitle">Live • Global</div>
@@ -30,22 +30,22 @@
       <div class="credits muted small">Built with FastAPI + WebSockets</div>
     </aside>
 
-    <main class="chat-area">
+    <main class="chat-area" role="main">
       <header class="chat-header">
         <div class="left-row">
           <button id="users-toggle" class="icon-btn" aria-label="Toggle users">☰</button>
           <div id="header-username" class="header-username">Viewing as guest</div>
         </div>
-        <div id="typing-indicator" class="typing-indicator"></div>
+        <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
       </header>
 
       <section id="chat-box" class="chat-box" aria-live="polite"></section>
 
       <form id="message-form" class="composer" onsubmit="return false;">
         <div class="left-controls">
-          <button type="button" id="emoji-btn" class="icon-btn" title="Emoji">😀</button>
+          <button type="button" id="emoji-btn" class="icon-btn" title="Emoji" aria-label="Emoji">😀</button>
           <input type="file" id="file-input" aria-hidden="true" />
-          <button type="button" id="attach-btn" class="icon-btn" title="Attach">📎</button>
+          <button type="button" id="attach-btn" class="icon-btn" title="Attach" aria-label="Attach">📎</button>
         </div>
 
         <textarea id="message-input" class="message-input" placeholder="Say something to the world..." rows="1" autocomplete="off"></textarea>
@@ -59,7 +59,7 @@
   </div>
 
   <!-- auth modal -->
-  <div id="auth-modal" class="modal">
+  <div id="auth-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
     <div class="modal-card">
       <h2 id="auth-title">Welcome — Sign in or Sign up</h2>
 
@@ -80,7 +80,7 @@
     </div>
   </div>
 
-  <!-- lightweight emoji-mart browser bundle -->
+  <!-- emoji picker library -->
   <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
   <script src="/static/chat.js"></script>
 </body>
