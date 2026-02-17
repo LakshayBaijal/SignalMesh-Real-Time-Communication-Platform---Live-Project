@@ -1,13 +1,14 @@
 :root{
   --bg:#071129;
-  --panel:#071024;
+  --panel:#091427;
   --muted:#9fb0c8;
-  --accent:#7c3aed;
+  --accent:#8b5cf6; /* brighter purple for contrast */
   --glass: rgba(255,255,255,0.03);
-  --me-bg: linear-gradient(135deg,#4361ee,#7c3aed);
+  --me-bg: linear-gradient(135deg,#4361ee,#8b5cf6);
   --other-bg: linear-gradient(135deg,#0f1724,#071129);
   --radius:14px;
   --composer-h:72px;
+  --composer-padding:18px;
 }
 
 /* Base */
@@ -18,7 +19,7 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 /* Sidebar */
 .sidebar{width:260px;padding:18px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-right:1px solid rgba(255,255,255,0.03);display:flex;flex-direction:column;gap:14px}
 .brand{display:flex;gap:12px;align-items:center}
-.logo{width:46px;height:46px;border-radius:10px;background:var(--glass);display:flex;align-items:center;justify-content:center;font-size:22px}
+.logo{width:46px;height:46px;border-radius:10px;background:#183044;display:flex;align-items:center;justify-content:center;font-size:22px}
 .title{font-weight:700}
 .subtitle{font-size:12px;color:var(--muted)}
 .users-section{flex:1;overflow:auto}
@@ -37,46 +38,59 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 .header-username{font-weight:700}
 .typing-indicator{font-size:13px;color:var(--muted);min-width:120px;text-align:right}
 
-/* Chat box */
+/* Chat box - CRITICAL mobile fixes */
 .chat-box{
   flex:1;
-  min-height:0;                /* <-- CRITICAL for flex overflow on mobile */
+  min-height:0;                /* critical for mobile flex overflow */
   overflow-y:auto;
-  -webkit-overflow-scrolling: touch; /* smooth scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
   padding:16px;
+  padding-bottom: calc(var(--composer-h) + var(--composer-padding) + 20px); /* ensure messages not hidden */
   display:flex;
   flex-direction:column;
   gap:12px;
-  scrollbar-width: thin; /* firefox */
+  scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
-
-/* show thin scrollbar on WebKit so users see it's scrollable */
 .chat-box::-webkit-scrollbar{width:10px}
 .chat-box::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:8px}
 .chat-box::-webkit-scrollbar-track{background:transparent}
 
+/* Messages */
 .msg-row{width:100%;display:flex}
 .msg-row.me{justify-content:flex-end}
 .msg-row.other{justify-content:flex-start}
 .msg{max-width:78%;padding:12px 14px;border-radius:14px;line-height:1.4;box-shadow:0 6px 18px rgba(2,6,23,0.5);word-wrap:break-word;overflow-wrap:break-word;white-space:pre-wrap}
-.msg .meta{font-size:12px;color:rgba(255,255,255,0.75);margin-bottom:6px}
+.msg .meta{font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:6px}
 .msg.me{background:var(--me-bg);color:white;border-bottom-right-radius:6px}
 .msg.other{background:var(--other-bg);color:#dbe9ff;border-bottom-left-radius:6px}
 
-/* Composer - sticky at bottom */
-.composer{display:flex;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid rgba(255,255,255,0.02);position:sticky;bottom:env(safe-area-inset-bottom);background:linear-gradient(180deg, rgba(2,6,23,0.0), rgba(2,6,23,0.02));height:var(--composer-h);min-height:var(--composer-h);z-index:6}
+/* Composer - fixed and centered with safe width */
+.composer{
+  display:flex;gap:10px;align-items:center;padding:12px;border-top:1px solid rgba(255,255,255,0.02);
+  position:fixed;
+  left:50%;
+  transform:translateX(-50%);
+  bottom:env(safe-area-inset-bottom,0);
+  width:calc(min(1100px,100%) - 32px);
+  max-width:1100px;
+  box-sizing:border-box;
+  background:linear-gradient(180deg, rgba(2,6,23,0.95), rgba(2,6,23,0.98));
+  height:var(--composer-h);
+  z-index:1000;
+  border-radius:0 0 12px 12px;
+}
 .left-controls{display:flex;gap:8px;align-items:center}
 #attach-btn{background:transparent;border:none;color:inherit;padding:8px;border-radius:10px}
 #file-input{display:none}
-.message-input{flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.02);color:inherit;font-size:15px;outline:none;resize:none;min-height:44px;max-height:180px;line-height:1.3}
+.message-input{flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.04);color:inherit;font-size:15px;outline:none;resize:none;min-height:44px;max-height:180px;line-height:1.3}
 .send-btn{padding:10px 14px;border-radius:12px;background:var(--accent);border:none;color:white;font-weight:600;cursor:pointer;min-width:64px}
 
-/* Modal */
-.modal{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;padding:12px}
-.modal-card{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);padding:18px;border-radius:12px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(2,6,23,0.7);display:flex;flex-direction:column;gap:10px}
-.modal-card input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:inherit}
-.pill{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;cursor:pointer}
+/* Modal (contrast improved) */
+.modal{position:fixed;left:0;right:0;top:0;bottom:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;padding:12px;z-index:2000}
+.modal-card{background:#071624; /* slightly lighter than background */ padding:18px;border-radius:12px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(2,6,23,0.7);display:flex;flex-direction:column;gap:10px}
+.modal-card input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#0a1724;color:#e6eef8}
+.pill{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;cursor:pointer;color:#e6eef8}
 .pill.active{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.06)}
 .primary{background:var(--accent);color:white;border:none;padding:10px;border-radius:8px}
 .small{font-size:12px}
@@ -85,7 +99,7 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 /* Emoji picker */
 .emoji-picker{position:fixed;right:12px;bottom: calc(var(--composer-h) + 12px);z-index:9999;display:none}
 
-/* Responsive adjustments */
+/* Responsive tweaks */
 @media (max-width:880px){
   .app{height:100vh;max-width:100%;border-radius:0;flex-direction:column}
   .sidebar{position:fixed;left:0;top:0;bottom:0;width:72%;max-width:320px;transform:translateX(-110%);transition:transform .22s ease;z-index:30;background:var(--panel)}
@@ -97,4 +111,4 @@ html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe 
 }
 
 /* ensure chat has bottom padding so messages aren't hidden under composer */
-.chat-box{padding-bottom: calc(var(--composer-h) + 16px)}
+.chat-box{padding-bottom: calc(var(--composer-h) + var(--composer-padding));}
