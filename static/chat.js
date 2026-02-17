@@ -1,4 +1,4 @@
-// static/chat.js - mobile-optimized, fixed scrolling, auth contrast & UX tweaks
+// improved mobile scrolling + fixed composer + contrast tweaks
 (() => {
   const host = location.host;
   const protocol = (location.protocol === "https:") ? "wss://" : "ws://";
@@ -18,7 +18,7 @@
   const usersToggle = document.getElementById("users-toggle");
   const sidebar = document.getElementById("sidebar");
 
-  // auth modal
+  // auth modal elements
   const authModal = document.getElementById("auth-modal");
   const authUsername = document.getElementById("auth-username");
   const authPassword = document.getElementById("auth-password");
@@ -27,6 +27,7 @@
   const toggleSignup = document.getElementById("toggle-signup");
   const continueGuest = document.getElementById("continue-guest");
   const authError = document.getElementById("auth-error");
+  const authTitle = document.getElementById("auth-title");
 
   // state
   let anonSocket = null;
@@ -38,7 +39,7 @@
 
   // helpers
   function nowTime(){ const d = new Date(); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
-  function randomColorFromName(name){ const palette = ["#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#7c3aed","#ec4899"]; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))|0; return palette[Math.abs(h)%palette.length]; }
+  function randomColorFromName(name){ const palette = ["#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#8b5cf6","#ec4899"]; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))|0; return palette[Math.abs(h)%palette.length]; }
   function escapeHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
   // autosize textarea
@@ -48,16 +49,15 @@
     el.style.height = Math.min(max, el.scrollHeight) + "px";
   }
 
-  // reliable scroll to bottom
+  // reliable scroll to bottom (small delay for mobile)
   function scrollToBottom(behavior='auto'){
-    try {
-      chatBox.scrollTo({ top: chatBox.scrollHeight, behavior });
-    } catch (e) {
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
+    setTimeout(()=> {
+      try { chatBox.scrollTo({ top: chatBox.scrollHeight, behavior }); }
+      catch(e) { chatBox.scrollTop = chatBox.scrollHeight; }
+    }, 60);
   }
 
-  // render users
+  // render user list
   function renderUsers(){
     usersListEl.innerHTML = "";
     Object.values(users).forEach(u=>{
@@ -68,7 +68,7 @@
     });
   }
 
-  // append message row + bubble
+  // append message
   function addRawMessage(name, text, mine=false){
     const row = document.createElement("div");
     row.className = "msg-row " + (mine ? "me" : "other");
@@ -82,8 +82,7 @@
     bubble.appendChild(meta); bubble.appendChild(content); row.appendChild(bubble);
     chatBox.appendChild(row);
 
-    // ensure the new message is visible
-    scrollToBottom('auto');
+    scrollToBottom('smooth');
   }
 
   function addSystemNotice(text){
@@ -91,7 +90,7 @@
     chatBox.appendChild(e); scrollToBottom('auto');
   }
 
-  // handle server messages
+  // parse server messages
   function handleServerData(data){
     let obj = null;
     try { obj = JSON.parse(data); } catch(e){ obj = null; }
@@ -131,17 +130,15 @@
     }
   }
 
-  // anonymous socket
+  // connect anon socket
   function connectAnon(){
-    try {
-      anonSocket = new WebSocket(anonWsUrl);
-    } catch(e){ console.error("WS error", e); return; }
+    try { anonSocket = new WebSocket(anonWsUrl); } catch(e){ console.error("WS error", e); return; }
     anonSocket.addEventListener("open", ()=>{ headerUser.textContent = "Viewing as guest"; });
     anonSocket.addEventListener("message", ev => handleServerData(ev.data));
     anonSocket.addEventListener("close", ()=>{ console.log("anon socket closed"); });
   }
 
-  // auth socket
+  // connect auth socket
   function connectAuth(tkn, name){
     token = tkn; username = name;
     const url = protocol + host + "/ws/" + token;
@@ -152,7 +149,7 @@
     authSocket.addEventListener("close", ()=>{ headerUser.textContent = "Disconnected — viewing as guest"; authSocket = null; if(!anonSocket || anonSocket.readyState !== WebSocket.OPEN) connectAnon(); });
   }
 
-  // auth UI state helpers
+  // auth UI state
   function setMode(m){
     mode = m;
     toggleLogin.classList.toggle('active', m==='login');
@@ -242,10 +239,8 @@
     }
   });
 
-  // sidebar mobile toggle
-  usersToggle.addEventListener("click", ()=>{
-    sidebar.classList.toggle("open");
-  });
+  // mobile sidebar toggle
+  usersToggle.addEventListener("click", ()=> sidebar.classList.toggle("open"));
 
   // close sidebar when clicking outside (mobile)
   document.addEventListener("click", (ev)=>{
@@ -256,12 +251,12 @@
     }
   });
 
-  // handle keyboard viewport for mobile to keep composer visible
+  // adjust when soft keyboard resizes viewport
   function adjustForVisualViewport(){
     if(window.visualViewport){
       const vv = window.visualViewport;
-      vv.addEventListener('resize', ()=> { setTimeout(()=> scrollToBottom('auto'), 60); });
-      vv.addEventListener('scroll', ()=> { setTimeout(()=> scrollToBottom('auto'), 60); });
+      vv.addEventListener('resize', ()=> { setTimeout(()=> scrollToBottom('auto'), 80); });
+      vv.addEventListener('scroll', ()=> { setTimeout(()=> scrollToBottom('auto'), 80); });
     } else {
       messageInput.addEventListener('focus', ()=> setTimeout(()=> scrollToBottom('smooth'), 250));
     }
@@ -269,9 +264,7 @@
   adjustForVisualViewport();
 
   // ensure sockets closed on unload
-  window.addEventListener("beforeunload", ()=>{
-    try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){}
-  });
+  window.addEventListener("beforeunload", ()=> { try { if(authSocket && authSocket.readyState === WebSocket.OPEN) authSocket.close(); } catch(e){} });
 
   // init
   connectAnon();
@@ -279,6 +272,6 @@
   authUsername.focus();
   autosizeTextarea(messageInput);
 
-  // expose some helpers (debug)
+  // expose helpers
   window.signalmesh = { addRawMessage, scrollToBottom };
 })();
