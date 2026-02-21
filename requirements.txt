@@ -6,3 +6,4 @@ python-jose
 passlib[bcrypt]
 websockets
 groq
+python-multipart
