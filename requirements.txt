@@ -1,9 +1,8 @@
 fastapi
 uvicorn
-python-dotenv
-groq
-numpy
-passlib[bcrypt]
-python-jose
 sqlalchemy
+python-dotenv
+python-jose
+passlib[bcrypt]
 websockets
+groq
