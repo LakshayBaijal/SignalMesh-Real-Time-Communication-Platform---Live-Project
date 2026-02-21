@@ -1,9 +1,8 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+# database.py
+from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
 
-# This creates signalmesh.db file automatically in project root
-DATABASE_URL = "sqlite:///./signalmesh.db"
+DATABASE_URL = "sqlite:///./chat.db"
 
 engine = create_engine(
     DATABASE_URL,
@@ -18,7 +17,6 @@ SessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-# Users table
 class User(Base):
     __tablename__ = "users"
 
@@ -26,14 +24,12 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     password = Column(String)
 
-# Messages table
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, index=True)
+    username = Column(String)
     content = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow)
 
-# Create database and tables automatically
+# create tables automatically
 Base.metadata.create_all(bind=engine)
