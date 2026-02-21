@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: world-chat
+    runtime: python
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+      - key: SECRET_KEY
+        generateValue: true
+
+      - key: GROQ_API_KEY
+        sync: false
