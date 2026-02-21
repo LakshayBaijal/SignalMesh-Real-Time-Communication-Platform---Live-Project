@@ -1,9 +1,9 @@
 fastapi
 uvicorn
-websockets
-python-multipart
+python-dotenv
+groq
+sentence-transformers
+numpy
 passlib[bcrypt]
 python-jose
-bcrypt==3.2.2
 sqlalchemy
-python-dotenv
