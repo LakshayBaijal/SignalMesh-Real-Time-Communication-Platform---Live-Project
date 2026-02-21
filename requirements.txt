@@ -2,8 +2,8 @@ fastapi
 uvicorn
 python-dotenv
 groq
-sentence-transformers
 numpy
 passlib[bcrypt]
 python-jose
 sqlalchemy
+websockets
