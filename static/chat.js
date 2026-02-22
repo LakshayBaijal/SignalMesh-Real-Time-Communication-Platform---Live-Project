@@ -137,13 +137,9 @@
       container.style.alignItems = "center";
       container.style.justifyContent = "flex-start";
 
-      const composer = document.querySelector(".composer");
-      if(composer && composer.parentNode){
-        composer.parentNode.insertBefore(container, composer);
-      } else {
-        // fallback: append to main
-        document.body.appendChild(container);
-      }
+      const chatBox = document.getElementById("chat-box");
+      chatBox.appendChild(container);
+      chatBox.scrollTop = chatBox.scrollHeight;
     }
 
     // Render buttons
@@ -440,4 +436,5 @@ function scrollToBottom() {
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
 
