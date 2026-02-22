@@ -7,3 +7,5 @@ passlib[bcrypt]
 websockets
 groq
 python-multipart
+passlib[argon2]
+
