@@ -137,9 +137,15 @@
       container.style.alignItems = "center";
       container.style.justifyContent = "flex-start";
 
-      const chatBox = document.getElementById("chat-box");
-      chatBox.appendChild(container);
-      chatBox.scrollTop = chatBox.scrollHeight;
+      const composer = document.querySelector(".composer");
+      if (composer && composer.parentNode) {
+        composer.parentNode.insertBefore(container, composer);
+      }
+
+      setTimeout(() => {
+  const chatBox = document.getElementById("chat-box");
+  chatBox.scrollTop = chatBox.scrollHeight;
+    }, 50);
     }
 
     // Render buttons
@@ -436,5 +442,6 @@ function scrollToBottom() {
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
 
 
