@@ -1,9 +1,14 @@
 # database.py
-from sqlalchemy import create_engine, Column, Integer, String, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime
+import os
 
-DATABASE_URL = "sqlite:///./chat.db"
+# Use a SQLite file in repo root (Render ephemeral filesystem — ok for testing)
+DB_FILENAME = os.environ.get("CHAT_DB", "chat.db")
+DATABASE_URL = f"sqlite:///{DB_FILENAME}"
 
+# create engine (sqlite needs check_same_thread=False for multiple threads)
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -12,17 +17,21 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    password = Column(String)
+    username = Column(String(100), unique=True, index=True, nullable=False)
+    password = Column(String(256), nullable=False)  # store hashed password
+
 
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String)
-    content = Column(Text)
+    username = Column(String(100), index=True, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-# create tables automatically
+
+# IMPORTANT: ensure tables exist when module is imported
 Base.metadata.create_all(bind=engine)
