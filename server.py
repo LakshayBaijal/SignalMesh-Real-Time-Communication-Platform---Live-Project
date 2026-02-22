@@ -12,23 +12,19 @@ from passlib.context import CryptContext
 from jose import jwt
 from dotenv import load_dotenv
 
-# Optional SDKs / libs — guarded so missing packages won't crash import
+# Optional SDKs - guarded (won't crash import if missing)
 try:
     from groq import Groq
 except Exception:
     Groq = None
 
-# We use numpy only if available — embedding fallback will be disabled if numpy missing.
+# numpy may be used if you later enable embeddings locally. It's optional.
 try:
     import numpy as np
 except Exception:
     np = None
 
-# Do NOT import sentence-transformers here on Render (heavy). If you want local embedding fallback,
-# install sentence-transformers locally and modify code later.
-SentenceTransformer = None
-
-# DB module (must exist in same directory)
+# database (make sure database.py is in same folder)
 from database import SessionLocal, User, Message
 
 load_dotenv()
@@ -59,8 +55,8 @@ anon_clients = set()      # set of anonymous websockets
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 recent_messages: List[Tuple[str, str]] = []     # list of (username, text)
-recent_embeddings: List = []                    # only used if embeddings enabled
-current_suggestions: List[str] = []             # persisted suggestions visible to everyone
+recent_embeddings: List = []                    # kept if you enable local embeddings later
+current_suggestions: List[str] = []             # last broadcast suggestions
 
 # ------------- optional Groq client -------------
 groq_client: Optional[object] = None
@@ -72,7 +68,7 @@ if Groq is not None and GROQ_API_KEY:
         groq_client = None
         print("Warning: Groq init failed:", e)
 else:
-    print("Groq not configured or SDK missing; suggestions fallback to embeddings (if available).")
+    print("Groq not configured or SDK missing; suggestions fallback to similarity (if available).")
 
 # ------------- helpers -------------
 def hash_password(p: str) -> str:
@@ -138,7 +134,7 @@ def save_message_to_db(username: str, content: str):
     finally:
         db.close()
 
-# ------------- embeddings helpers (only if numpy available and you add embedding model later) -------------
+# ------------- embeddings helpers (optional) -------------
 def cosine_similarity(a, b) -> float:
     if np is None:
         return 0.0
@@ -182,7 +178,6 @@ def find_top_k_similar_excluding(embedding, exclude_user: str, exclude_text: str
 async def generate_ai_suggestions_groq(message: str, recent_msgs: List[Tuple[str, str]], exclude_user: Optional[str] = None) -> List[str]:
     if groq_client is None:
         return []
-    # Build context excluding messages by sender
     context_msgs = [ (u,t) for (u,t) in recent_msgs if u != exclude_user ]
     context_lines = []
     for user, text in context_msgs[-AI_CONTEXT_LINES:]:
@@ -216,14 +211,13 @@ Rules:
                 max_tokens=60
             )
         response = await loop.run_in_executor(None, call_groq)
-        # extract content (handle SDK shapes)
         try:
             text_out = response.choices[0].message.content
         except Exception:
             try:
                 text_out = response["choices"][0]["message"]["content"]
             except Exception as e:
-                print("Groq extract failed:", e)
+                print("generate_ai_suggestions_groq: extract failed:", e)
                 return []
         suggestions = []
         for line in text_out.splitlines():
@@ -249,7 +243,7 @@ Rules:
                 break
         return suggestions[:TOP_K]
     except Exception as e:
-        print("generate_ai_suggestions_groq error:", e)
+        print("Groq suggestion error:", e)
         return []
 
 # ------------- debug endpoint -------------
@@ -266,7 +260,6 @@ async def debug_ai(payload=Body(...)):
     except Exception as e:
         print("debug_ai groq failed:", e)
         suggestions = []
-    # fallback to embeddings if possible (usually not active on Render)
     return {"message": msg, "suggestions": suggestions, "recent_sample": recent_messages[-10:], "current_suggestions": current_suggestions}
 
 # ------------- routes & websockets -------------
@@ -332,6 +325,7 @@ async def websocket_anonymous(websocket: WebSocket):
         while True:
             try:
                 _ = await websocket.receive_text()
+                # ignore any anonymous input (readonly)
             except WebSocketDisconnect:
                 break
             except Exception:
@@ -362,7 +356,6 @@ async def websocket_auth(websocket: WebSocket, token: str):
     except Exception:
         pass
     auth_clients[username] = websocket
-    # announce join
     try:
         await broadcast_raw(json.dumps({"type":"join","name": username, "color": None}))
     except:
@@ -370,9 +363,8 @@ async def websocket_auth(websocket: WebSocket, token: str):
     try:
         await broadcast_user_count()
         if current_suggestions:
-            # send persisted suggestions to new user
             await websocket.send_text(json.dumps({"type":"suggestions","suggestions": current_suggestions}))
-    except:
+    except Exception:
         pass
 
     try:
@@ -383,48 +375,39 @@ async def websocket_auth(websocket: WebSocket, token: str):
                 break
             except Exception:
                 break
-
-            # parse incoming JSON
             try:
                 parsed = json.loads(text)
                 if isinstance(parsed, dict) and parsed.get("type"):
                     t = parsed.get("type")
                     if t in ("join", "leave"):
                         continue
-
                     if t == "message":
                         mtext = parsed.get("text", "")
                         display_name = parsed.get("name", username)
-                        # save to DB
                         try:
                             save_message_to_db(display_name, mtext)
                         except Exception as e:
                             print("save db error:", e)
-                        # broadcast message to all
                         await broadcast_raw(text)
-
-                        # Prepare embedding fallback only if available (rare on Render)
+                        # generate suggestions BEFORE adding this message to recent buffer
                         embedding = None
-                        # PRIMARY: Groq (exclude sender from context)
                         suggestions: List[str] = []
+                        # primary: Groq (exclude sender)
                         try:
                             suggestions = await generate_ai_suggestions_groq(mtext, recent_messages, exclude_user=display_name)
                         except Exception as e:
-                            print("groq gen error:", e)
+                            print("Groq generation failed:", e)
                             suggestions = []
-
-                        # FALLBACK: embedding similarity (if embeddings set up locally)
+                        # fallback: similarity (if embeddings available)
                         if not suggestions and embedding is not None:
                             try:
                                 suggestions = find_top_k_similar_excluding(embedding, exclude_user=display_name, exclude_text=mtext, k=TOP_K)
                             except Exception as e:
                                 print("similarity fallback error:", e)
                                 suggestions = []
-
-                        # Add current message to recent buffers AFTER generating suggestions
+                        # finally add current message to recent buffer
                         add_to_recent(display_name, mtext, embedding)
-
-                        # Persist & broadcast suggestions (so frontends show them persistently)
+                        # broadcast suggestions if any (persist globally)
                         if suggestions:
                             current_suggestions.clear()
                             current_suggestions.extend([s.strip() for s in suggestions[:TOP_K] if s and s.strip()])
@@ -433,7 +416,6 @@ async def websocket_auth(websocket: WebSocket, token: str):
                             except Exception as e:
                                 print("broadcast suggestions failed:", e)
                         continue
-
                     if t == "file":
                         fname = parsed.get("filename") or ""
                         furl = parsed.get("url") or ""
@@ -444,11 +426,9 @@ async def websocket_auth(websocket: WebSocket, token: str):
                             print("error saving file message:", e)
                         await broadcast_raw(text)
                         continue
-
-                    # other events
                     await broadcast_raw(text)
                 else:
-                    # plain text fallback
+                    # treat plain string as message
                     try:
                         save_message_to_db(username, text)
                     except Exception as e:
@@ -472,6 +452,3 @@ async def websocket_auth(websocket: WebSocket, token: str):
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-
