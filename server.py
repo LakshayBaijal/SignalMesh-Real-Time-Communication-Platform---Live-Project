@@ -2,8 +2,9 @@
 import os
 import json
 import shutil
+import hashlib
 from datetime import datetime
-from typing import List
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body, UploadFile, File
 from fastapi.staticfiles import StaticFiles
@@ -12,39 +13,76 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 from dotenv import load_dotenv
 
+# Optional AI/embedding imports (only used if installed)
+try:
+    from groq import Groq
+except Exception:
+    Groq = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:
+    SentenceTransformer = None
+
+import asyncio
+import numpy as np
+
 # Local DB models / session
-from database import SessionLocal, User, Message
+from database import SessionLocal, User, Message  # uses your existing database.py schema
 
 load_dotenv()
 
+# ----------------- config -----------------
 SECRET_KEY = os.environ.get("SECRET_KEY", "replace-me-with-a-secure-secret")
 ALGORITHM = "HS256"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+# suggestion / embedding params
+MAX_RECENT = int(os.environ.get("MAX_RECENT", 200))
+TOP_K = int(os.environ.get("TOP_K", 3))
+AI_CONTEXT_LINES = int(os.environ.get("AI_CONTEXT_LINES", 8))
+MAX_SUGGESTION_WORDS = int(os.environ.get("MAX_SUGGESTION_WORDS", 12))
+MODEL_NAME = os.environ.get("EMBED_MODEL", "all-MiniLM-L6-v2")
+MODEL_CACHE_FOLDER = os.environ.get("MODEL_CACHE_FOLDER", "./models")
 
 app = FastAPI()
 
-# Serve static frontend
+# static + uploads (same structure as before)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Ensure uploads folder exists and mount it
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-# Use bcrypt_sha256 to avoid bcrypt 72-byte limit (Passlib will pre-hash with sha256)
+# ----------------- password context (safe vs bcrypt 72-byte limit) -----------------
+# Use bcrypt_sha256 which pre-hashes with sha256 before bcrypt to avoid 72-byte limit.
+# Keep a defensive fallback: if hashing raises ValueError about length, pre-hash manually.
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 
 def hash_password(p: str) -> str:
-    # Defensive: ensure it's a string
+    """Hash safely and defensively against bcrypt 72-byte limit."""
     if p is None:
         p = ""
-    return pwd_context.hash(str(p))
+    p = str(p)
+    try:
+        return pwd_context.hash(p)
+    except Exception as e:
+        # Defensive fallback: pre-hash with sha256 then hash (should not generally be needed if bcrypt_sha256 is available)
+        try:
+            if "72" in str(e) or isinstance(e, ValueError):
+                pre = hashlib.sha256(p.encode("utf-8")).hexdigest()
+                return pwd_context.hash(pre)
+        except Exception:
+            pass
+        # re-raise the original exception if fallback didn't work
+        raise
 
 
 def verify_password(p: str, h: str) -> bool:
     try:
         return pwd_context.verify(str(p), h)
     except Exception:
+        # if verify fails for any reason, return False
         return False
 
 
@@ -59,44 +97,61 @@ def decode_token(token: str):
         return None
 
 
-# in-memory connection lists and recent messages for suggestions
+# ----------------- in-memory state -----------------
 auth_clients = {}        # username -> websocket
 anon_clients = set()     # set of anonymous websockets
 
-# keep recent world messages in memory (list of dicts: {name, text, ts})
-MAX_RECENT = 200
+# Keep recent messages as list of dicts: {name, text, ts} (newest last)
 recent_messages: List[dict] = []
+# Embeddings aligned with a separate list (only messages encoded during runtime)
+recent_embeddings: List[np.ndarray] = []
+
+# Persisted latest suggestions so newly connected users immediately see them
+current_suggestions: List[str] = []
+
+# ----------------- optional AI/embeddings -----------------
+embedding_model = None
+groq_client = None
+
+if SentenceTransformer is not None:
+    try:
+        print("Loading embedding model:", MODEL_NAME)
+        embedding_model = SentenceTransformer(MODEL_NAME, cache_folder=MODEL_CACHE_FOLDER)
+        print("Embedding model loaded")
+    except Exception as e:
+        print("Warning: failed to load embedding model:", e)
+        embedding_model = None
+else:
+    print("sentence-transformers not installed; embedding fallback disabled.")
+
+if Groq is not None and GROQ_API_KEY:
+    try:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+        print("Groq client initialized")
+    except Exception as e:
+        groq_client = None
+        print("Warning: failed to initialize Groq client:", e)
+elif Groq is None:
+    print("groq package not installed; Groq integration disabled.")
+else:
+    print("GROQ_API_KEY not found; Groq integration disabled (will fallback to embeddings).")
 
 
-def update_recent_messages(name: str, text: str):
-    """
-    Append a message record to recent_messages and trim to MAX_RECENT.
-    Keep newest last (append).
-    """
-    if text is None:
-        return
-    recent_messages.append({"name": name, "text": text, "ts": datetime.utcnow().isoformat()})
-    if len(recent_messages) > MAX_RECENT:
-        # drop oldest
-        del recent_messages[0: len(recent_messages) - MAX_RECENT]
-
-
-# simple stop words / greetings to avoid in suggestions
-COMMON_GREETINGS = {"hi", "hello", "hey", "hii", "hiya", "yo", "ok", "okay"}
-
-
+# ----------------- helpers -----------------
 def _clean_text_for_suggestion(s: str) -> str:
     if not s:
         return ""
     s = s.strip()
-    return " ".join(s.split())  # collapse whitespace
+    return " ".join(s.split())
 
 
-def generate_suggestions(sender: str = None, limit: int = 3) -> List[str]:
+COMMON_GREETINGS = {"hi", "hello", "hey", "hii", "hiya", "yo", "ok", "okay"}
+
+
+def generate_simple_suggestions(sender: str = None, limit: int = 3) -> List[str]:
     """
-    Generate up to `limit` suggestion strings based on recent_messages.
-    Prefer messages from other users. Skip very short messages and common greetings.
-    Return newest distinct suggestions (most recent first).
+    Simple deterministic suggestion generator based on recent_messages in memory.
+    Prefer messages from other users, skip greetings and too-short texts.
     """
     suggestions = []
     seen = set()
@@ -108,10 +163,8 @@ def generate_suggestions(sender: str = None, limit: int = 3) -> List[str]:
         text = _clean_text_for_suggestion(rec.get("text", ""))
         if not text:
             continue
-        # skip if it's the same user who just sent the message (we prefer other users' messages)
         if sender and author == sender:
             continue
-        # normalize and skip trivial greetings or too short
         low = text.lower()
         if low in COMMON_GREETINGS:
             continue
@@ -121,7 +174,7 @@ def generate_suggestions(sender: str = None, limit: int = 3) -> List[str]:
             continue
         seen.add(text)
         suggestions.append(text)
-    # if not enough suggestions from other users, fallback to any recent messages (including sender)
+    # fallback allow messages from sender if still insufficient
     if len(suggestions) < limit:
         for rec in reversed(recent_messages):
             if len(suggestions) >= limit:
@@ -137,20 +190,14 @@ def generate_suggestions(sender: str = None, limit: int = 3) -> List[str]:
     return suggestions[:limit]
 
 
-# ---------------- helper broadcast / db helpers ----------------
 async def broadcast_raw(text: str):
-    """
-    Broadcast a raw string (already JSON-stringified) to all connected clients.
-    Clean up closed connections.
-    """
+    """Broadcast a raw JSON string to all connected clients (auth + anon). Clean closed connections."""
     to_remove = []
-    # auth clients
     for user, ws in list(auth_clients.items()):
         try:
             await ws.send_text(text)
         except Exception:
             to_remove.append(("auth", user))
-    # anon clients
     for ws in list(anon_clients):
         try:
             await ws.send_text(text)
@@ -168,9 +215,7 @@ async def broadcast_raw(text: str):
 
 
 def save_message_to_db(username: str, content: str):
-    """
-    Synchronous helper: open a short-lived session and save the message.
-    """
+    """Synchronous DB save helper (short-lived session)."""
     db = SessionLocal()
     try:
         msg = Message(username=username, content=content)
@@ -183,10 +228,191 @@ def save_message_to_db(username: str, content: str):
         db.close()
 
 
-# ---------------- routes ----------------
+# ----------------- embeddings helpers (runtime only) -----------------
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    a_norm = np.linalg.norm(a)
+    b_norm = np.linalg.norm(b)
+    if a_norm == 0 or b_norm == 0:
+        return 0.0
+    return float(np.dot(a, b) / (a_norm * b_norm))
+
+
+async def encode_text_async(text: str) -> np.ndarray:
+    if embedding_model is None:
+        raise RuntimeError("Embedding model not loaded")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: embedding_model.encode(text, convert_to_numpy=True))
+
+
+def add_to_recent_runtime(name: str, text: str, embedding: Optional[np.ndarray] = None):
+    """Add a message to the in-memory recent buffers. For runtime embeddings, keep alignment."""
+    recent_messages.append({"name": name, "text": text, "ts": datetime.utcnow().isoformat()})
+    if embedding is not None:
+        recent_embeddings.append(embedding)
+    # keep length bounded
+    if len(recent_messages) > MAX_RECENT:
+        # if we drop the oldest, possibly also drop the oldest embedding to keep alignment (pop left)
+        # remove oldest message
+        del recent_messages[0]
+        if recent_embeddings:
+            # keep embeddings roughly aligned (we only appended embeddings for messages encoded at runtime)
+            # if embeddings length > recent_embeddings allowed, trim front
+            if len(recent_embeddings) > len(recent_messages):
+                # trim oldest embedding
+                del recent_embeddings[0]
+
+
+def find_top_k_similar_excluding(embedding: np.ndarray, exclude_user: str, exclude_text: str, k: int = TOP_K) -> List[str]:
+    """Find top-k similar runtime-encoded messages excluding the sender and identical text."""
+    if not recent_embeddings:
+        return []
+    sims = []
+    for idx, emb in enumerate(recent_embeddings):
+        sim = cosine_similarity(embedding, emb)
+        sims.append((idx, sim))
+    sims.sort(key=lambda x: x[1], reverse=True)
+    suggestions = []
+    for idx, sim in sims:
+        # map idx to the most recent embeddings-aligned messages: embeddings correspond to a suffix of recent_messages
+        # compute aligned index: consider embeddings aligned to the tail of recent_messages
+        align_offset = len(recent_messages) - len(recent_embeddings)
+        msg_idx = align_offset + idx
+        if msg_idx < 0 or msg_idx >= len(recent_messages):
+            continue
+        candidate = recent_messages[msg_idx]
+        candidate_user, candidate_text = candidate.get("name"), candidate.get("text")
+        if candidate_user == exclude_user:
+            continue
+        if candidate_text.strip().lower() == exclude_text.strip().lower():
+            continue
+        if candidate_text not in suggestions:
+            suggestions.append(candidate_text)
+        if len(suggestions) >= k:
+            break
+    return suggestions
+
+
+# ----------------- Groq suggestion helper (optional) -----------------
+async def generate_ai_suggestions_groq(message: str, recent_msgs: List[dict], exclude_user: Optional[str] = None) -> List[str]:
+    """
+    Use Groq API to generate up to TOP_K short suggestions.
+    Uses the recent messages (most recent last) but filters out exclude_user from context.
+    """
+    if groq_client is None:
+        return []
+
+    # build context excluding messages from sender
+    context_msgs = [ (m["name"], m["text"]) for m in recent_msgs if m.get("name") != exclude_user ]
+    context_lines = []
+    for user, text in context_msgs[-AI_CONTEXT_LINES:]:
+        t = text if len(text) <= 300 else text[:300] + "..."
+        context_lines.append(f"{user}: {t}")
+
+    prompt = f"""
+You are a concise smart-reply assistant. Given the conversation context (excluding the message sender) and the latest user message,
+produce exactly {TOP_K} short conversational reply suggestions, one per line. Return replies only; no JSON, no numbering, no explanations.
+
+Context (most recent first):
+{chr(10).join(context_lines)}
+
+Latest message:
+{message}
+
+Rules:
+- 1-8 words each (prefer 2-5)
+- Friendly, natural replies
+- Each reply on its own line
+"""
+
+    try:
+        loop = asyncio.get_event_loop()
+
+        def call_groq():
+            return groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "You are a concise smart-reply generator."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0,
+                max_tokens=60
+            )
+
+        response = await loop.run_in_executor(None, call_groq)
+
+        # Extract content (robust)
+        try:
+            text_out = response.choices[0].message.content
+        except Exception:
+            try:
+                text_out = response["choices"][0]["message"]["content"]
+            except Exception as e:
+                print("generate_ai_suggestions_groq: extract failed:", e)
+                return []
+
+        # parse lines
+        suggestions = []
+        for line in text_out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if len(line) > 2 and line[0].isdigit() and line[1] == '.':
+                parts = line.split('. ', 1)
+                if len(parts) > 1:
+                    line = parts[1].strip()
+            if line.startswith(("-", "*")):
+                line = line[1:].strip()
+            if (line.startswith('"') and line.endswith('"')) or (line.startswith("'") and line.endswith("'")):
+                line = line[1:-1].strip()
+            if not line:
+                continue
+            words = line.split()
+            if len(words) > MAX_SUGGESTION_WORDS:
+                line = " ".join(words[:MAX_SUGGESTION_WORDS]) + "..."
+            if line not in suggestions:
+                suggestions.append(line)
+            if len(suggestions) >= TOP_K:
+                break
+        return suggestions[:TOP_K]
+    except Exception as e:
+        print("Groq suggestion error:", e)
+        return []
+
+
+# ----------------- load recent messages from DB at startup -----------------
+def load_recent_messages_from_db():
+    """
+    Populate recent_messages from DB so suggestions are available after restarts.
+    This loads up to MAX_RECENT messages (oldest first).
+    """
+    db = SessionLocal()
+    try:
+        # detect timestamp field name used in DB model
+        col = getattr(Message, "created_at", None) or getattr(Message, "timestamp", None)
+        if col is None:
+            return
+        rows = db.query(Message).order_by(col.desc()).limit(MAX_RECENT).all()
+        # rows are newest-first; we want oldest-first in recent_messages
+        for r in reversed(rows):
+            text = getattr(r, "content", None) or getattr(r, "content", "")
+            recent_messages.append({"name": getattr(r, "username", None), "text": text, "ts": getattr(r, "created_at", None) or getattr(r, "timestamp", None)})
+    except Exception as e:
+        print("load_recent_messages_from_db failed:", e)
+    finally:
+        db.close()
+
+
+# run load on module import / startup
+try:
+    load_recent_messages_from_db()
+    print(f"Loaded {len(recent_messages)} recent messages from DB into memory.")
+except Exception as e:
+    print("Failed to preload recent messages from DB:", e)
+
+
+# ----------------- routes -----------------
 @app.get("/")
 def get_chat():
-    # serve the main chat page
     return FileResponse("static/chat.html")
 
 
@@ -204,13 +430,13 @@ async def signup(data=Body(...)):
         if existing_user:
             raise HTTPException(status_code=400, detail="User already exists")
 
-        # hash (bcrypt_sha256 handles long input safely)
-        hashed = hash_password(password)
+        try:
+            hashed = hash_password(password)
+        except Exception as e:
+            print("hashing error:", e)
+            raise HTTPException(status_code=500, detail="Failed to hash password")
 
-        new_user = User(
-            username=username,
-            password=hashed
-        )
+        new_user = User(username=username, password=hashed)
         db.add(new_user)
         db.commit()
         return {"message": "Signup successful"}
@@ -219,7 +445,6 @@ async def signup(data=Body(...)):
     except Exception as e:
         print("signup error:", e)
         db.rollback()
-        # return the error text so you see it in dev; in prod you might hide it
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
@@ -240,7 +465,6 @@ async def login(data=Body(...)):
             raise HTTPException(status_code=400, detail="User not found")
         if not verify_password(password, user.password):
             raise HTTPException(status_code=400, detail="Wrong password")
-
         token = create_token(username)
         return {"token": token}
     finally:
@@ -249,9 +473,6 @@ async def login(data=Body(...)):
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """
-    Basic file upload. In production sanitize filename and optionally use cloud storage.
-    """
     filename = file.filename or "upload"
     base, ext = os.path.splitext(filename)
     safe_filename = filename
@@ -261,38 +482,31 @@ async def upload_file(file: UploadFile = File(...)):
         safe_filename = f"{base}_{counter}{ext}"
         dest = os.path.join(UPLOAD_DIR, safe_filename)
         counter += 1
-
     try:
         with open(dest, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         print("upload write error:", e)
         raise HTTPException(status_code=500, detail="Failed to save file")
-
-    return {
-        "url": f"/uploads/{os.path.basename(dest)}",
-        "filename": os.path.basename(dest)
-    }
+    return {"url": f"/uploads/{os.path.basename(dest)}", "filename": os.path.basename(dest)}
 
 
-# ---------------- anonymous readonly websocket ----------------
+# ----------------- anonymous websocket (read-only) -----------------
 @app.websocket("/ws")
 async def websocket_anonymous(websocket: WebSocket):
     await websocket.accept()
     anon_clients.add(websocket)
     print("Anonymous client connected. total anon:", len(anon_clients))
-    # notify counts
+    # broadcast counts
     try:
-        # broadcast user count to everyone (including this new anon)
         total_auth = len(auth_clients)
         total_anon = len(anon_clients)
-        data = json.dumps({
+        await broadcast_raw(json.dumps({
             "type": "user_count",
             "auth": total_auth,
             "anon": total_anon,
             "total": total_auth + total_anon
-        })
-        await broadcast_raw(data)
+        }))
     except Exception:
         pass
 
@@ -300,7 +514,6 @@ async def websocket_anonymous(websocket: WebSocket):
         while True:
             try:
                 _ = await websocket.receive_text()
-                # ignore anon input (read-only)
             except WebSocketDisconnect:
                 break
             except Exception:
@@ -316,21 +529,19 @@ async def websocket_anonymous(websocket: WebSocket):
         try:
             total_auth = len(auth_clients)
             total_anon = len(anon_clients)
-            data = json.dumps({
+            await broadcast_raw(json.dumps({
                 "type": "user_count",
                 "auth": total_auth,
                 "anon": total_anon,
                 "total": total_auth + total_anon
-            })
-            await broadcast_raw(data)
+            }))
         except Exception:
             pass
 
 
-# ---------------- authenticated websocket ----------------
+# ----------------- authenticated websocket -----------------
 @app.websocket("/ws/{token}")
 async def websocket_auth(websocket: WebSocket, token: str):
-    # validate token
     payload = decode_token(token)
     if not payload or "username" not in payload:
         await websocket.close()
@@ -342,16 +553,12 @@ async def websocket_auth(websocket: WebSocket, token: str):
     except Exception:
         return
 
-    # send existing users list BEFORE adding them to auth_clients
+    # send existing users list BEFORE adding
     try:
         for user in list(auth_clients.keys()):
             if user == username:
                 continue
-            data = json.dumps({
-                "type": "join",
-                "name": user,
-                "color": None
-            })
+            data = json.dumps({"type": "join", "name": user, "color": None})
             try:
                 await websocket.send_text(data)
             except Exception:
@@ -359,28 +566,31 @@ async def websocket_auth(websocket: WebSocket, token: str):
     except Exception:
         pass
 
-    # register new authenticated client
+    # register
     auth_clients[username] = websocket
     print(f"{username} connected (auth). total auth:", len(auth_clients))
 
     # announce join
     try:
-        join_msg = json.dumps({"type": "join", "name": username, "color": None})
-        await broadcast_raw(join_msg)
+        await broadcast_raw(json.dumps({"type": "join", "name": username, "color": None}))
     except Exception:
         pass
 
-    # update counts
+    # send counts and current suggestions to the new user
     try:
         total_auth = len(auth_clients)
         total_anon = len(anon_clients)
-        data = json.dumps({
+        await broadcast_raw(json.dumps({
             "type": "user_count",
             "auth": total_auth,
             "anon": total_anon,
             "total": total_auth + total_anon
-        })
-        await broadcast_raw(data)
+        }))
+        if current_suggestions:
+            try:
+                await websocket.send_text(json.dumps({"type": "suggestions", "suggestions": current_suggestions}))
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -393,7 +603,7 @@ async def websocket_auth(websocket: WebSocket, token: str):
             except Exception:
                 break
 
-            # handle incoming text safely
+            # process payload
             try:
                 parsed = json.loads(text)
             except Exception:
@@ -403,41 +613,79 @@ async def websocket_auth(websocket: WebSocket, token: str):
                 if isinstance(parsed, dict) and parsed.get("type"):
                     t = parsed.get("type")
 
-                    # ignore client-sent join/leave; server handles them
                     if t in ("join", "leave"):
                         continue
 
-                    # message: save and broadcast
                     if t == "message":
                         mtext = parsed.get("text", "").strip()
                         author = parsed.get("name", username)
-                        if mtext:
-                            # update in-memory recent messages for suggestions
-                            update_recent_messages(author, mtext)
-                            # save to DB
+                        if not mtext:
+                            continue
+
+                        # 1) persist to DB
+                        try:
+                            save_message_to_db(author, mtext)
+                        except Exception as e:
+                            print("error saving message:", e)
+
+                        # 2) broadcast original message
+                        await broadcast_raw(json.dumps({"type": "message", "name": author, "text": mtext}))
+
+                        # 3) Try AI suggestion pipeline (Groq -> embed-similarity -> simple fallback)
+                        suggestions: List[str] = []
+
+                        # attempt Groq (excludes sender from context)
+                        try:
+                            suggestions = await generate_ai_suggestions_groq(mtext, recent_messages, exclude_user=author)
+                        except Exception as e:
+                            print("Groq generation failed:", e)
+                            suggestions = []
+
+                        # embedding fallback (runtime embeddings only)
+                        embedding = None
+                        if not suggestions and embedding_model is not None:
                             try:
-                                save_message_to_db(author, mtext)
+                                embedding = await encode_text_async(mtext)
+                                suggestions = find_top_k_similar_excluding(embedding, exclude_user=author, exclude_text=mtext, k=TOP_K)
                             except Exception as e:
-                                print("error saving message:", e)
-                            # broadcast original message unchanged
-                            await broadcast_raw(json.dumps({
-                                "type": "message",
-                                "name": author,
-                                "text": mtext
-                            }))
-                            # generate suggestions (prefer other users' messages)
+                                print("Embedding similarity error:", e)
+                                suggestions = []
+
+                        # final simple fallback using recent_messages text-only
+                        if not suggestions:
+                            suggestions = generate_simple_suggestions(sender=author, limit=TOP_K)
+
+                        # 4) Add current message to recent buffers (after generating suggestions to avoid echoing current message)
+                        if embedding is not None:
                             try:
-                                suggestions = generate_suggestions(sender=author, limit=3)
-                                # broadcast suggestions to all clients
-                                await broadcast_raw(json.dumps({
-                                    "type": "suggestions",
-                                    "suggestions": suggestions
-                                }))
+                                add_to_recent_runtime(author, mtext, embedding)
                             except Exception as e:
-                                print("suggestion generation failed:", e)
+                                print("Failed to add to recent buffer with embedding:", e)
+                                add_to_recent_runtime(author, mtext, None)
+                        else:
+                            add_to_recent_runtime(author, mtext, None)
+
+                        # 5) persist and broadcast suggestions (if any)
+                        if suggestions:
+                            # sanitize & dedupe & trim
+                            cleaned = []
+                            for s in suggestions:
+                                s2 = _clean_text_for_suggestion(s)
+                                if not s2:
+                                    continue
+                                if s2 not in cleaned:
+                                    cleaned.append(s2)
+                                if len(cleaned) >= TOP_K:
+                                    break
+                            if cleaned:
+                                # update global persisted suggestions
+                                current_suggestions[:] = cleaned[:TOP_K]
+                                try:
+                                    await broadcast_raw(json.dumps({"type": "suggestions", "suggestions": current_suggestions}))
+                                except Exception as e:
+                                    print("Failed to broadcast suggestions:", e)
                         continue
 
-                    # file event: save a simple representation to DB and broadcast
                     if t == "file":
                         fname = parsed.get("filename") or ""
                         furl = parsed.get("url") or ""
@@ -447,44 +695,33 @@ async def websocket_auth(websocket: WebSocket, token: str):
                             save_message_to_db(author, content)
                         except Exception as e:
                             print("error saving file message:", e)
-                        await broadcast_raw(json.dumps({
-                            "type": "file",
-                            "name": author,
-                            "url": furl,
-                            "filename": fname
-                        }))
-                        # update recent messages (so suggestions can be created from text messages later)
-                        update_recent_messages(author, content)
+                        # update recent messages (text form)
+                        add_to_recent_runtime(author, content, None)
+                        await broadcast_raw(json.dumps({"type": "file", "name": author, "url": furl, "filename": fname}))
                         continue
 
-                    # typing event: broadcast to others
                     if t == "typing":
                         try:
-                            await broadcast_raw(json.dumps({
-                                "type": "typing",
-                                "name": parsed.get("name", username)
-                            }))
+                            await broadcast_raw(json.dumps({"type": "typing", "name": parsed.get("name", username)}))
                         except Exception:
                             pass
                         continue
 
-                    # unknown typed object -> just broadcast raw
+                    # unknown typed item -> broadcast
                     await broadcast_raw(text)
                 else:
-                    # fallback: treat as plain message
+                    # fallback plain text
                     plain = text
                     try:
                         save_message_to_db(username, plain)
                     except Exception as e:
                         print("error saving plain message:", e)
-                    update_recent_messages(username, plain)
+                    add_to_recent_runtime(username, plain, None)
                     await broadcast_raw(json.dumps({"type": "message", "name": username, "text": plain}))
             except Exception as e:
-                # don't crash websocket loop on any message error
                 print("handling message error:", e)
 
     finally:
-        # cleanup on disconnect
         try:
             if username in auth_clients and auth_clients[username] is websocket:
                 del auth_clients[username]
@@ -493,32 +730,30 @@ async def websocket_auth(websocket: WebSocket, token: str):
         print(f"{username} disconnected (auth). total auth:", len(auth_clients))
         # announce leave
         try:
-            leave_msg = json.dumps({"type": "leave", "name": username})
-            await broadcast_raw(leave_msg)
+            await broadcast_raw(json.dumps({"type": "leave", "name": username}))
         except Exception:
             pass
         # broadcast updated counts
         try:
             total_auth = len(auth_clients)
             total_anon = len(anon_clients)
-            data = json.dumps({
+            await broadcast_raw(json.dumps({
                 "type": "user_count",
                 "auth": total_auth,
                 "anon": total_anon,
                 "total": total_auth + total_anon
-            })
-            await broadcast_raw(data)
+            }))
         except Exception:
             pass
 
 
-# small debug endpoint to verify server is alive
+# health
 @app.get("/ping")
 def ping():
     return {"status": "ok", "ts": datetime.utcnow().isoformat()}
 
 
-# run with uvicorn when executed directly (helps local dev and Render)
+# local run helper
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
