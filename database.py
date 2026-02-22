@@ -24,5 +24,5 @@ class Message(Base):
     username = Column(String)
     content = Column(Text)
 
-# create tables
+# create tables automatically
 Base.metadata.create_all(bind=engine)
