@@ -1,4 +1,4 @@
-// static/chat.js (UPDATED — handles {"type":"suggestions"} properly)
+// static/chat.js (UPDATED — full features + suggestion send-on-click + don't client-clear suggestions)
 (() => {
   const host = location.host;
 
@@ -162,9 +162,21 @@
       btn.style.fontSize = "13px";
 
       btn.onclick = function(){
-        // default behaviour: fill input, focus it
-        messageInput.value = text;
-        messageInput.focus();
+        // SEND immediately like real message if authenticated
+        if(authSocket && authSocket.readyState === WebSocket.OPEN){
+          authSocket.send(JSON.stringify({
+            type: "message",
+            name: username,
+            text: text
+          }));
+          // do not client-clear suggestions; server will broadcast updated suggestions
+        } else {
+          // fallback: fill input and show auth prompt
+          messageInput.value = text;
+          messageInput.focus();
+          mustAuthPopup.style.display = "flex";
+          setTimeout(()=> { mustAuthPopup.style.display = "none"; }, 3000);
+        }
       };
 
       container.appendChild(btn);
@@ -205,17 +217,14 @@
       } else if(obj.type === "message"){
         const mine = username && obj.name === username;
         addRawMessage(obj.name, escapeHtml(obj.text), mine);
-        // Clear suggestions after a new real message is rendered (user likely consumed them)
-        const sug = document.getElementById("suggestions");
-        if(sug) sug.innerHTML = "";
+        // DO NOT clear suggestions here — server will update them when needed
       } else if(obj.type === "file"){
         const mine = username && obj.name === username;
         const safeUrl = escapeHtml(obj.url || "");
         const safeFilename = escapeHtml(obj.filename || "file");
         const linkHtml = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">📎 ${safeFilename}</a>`;
         addRawMessage(obj.name, linkHtml, mine);
-        const sug = document.getElementById("suggestions");
-        if(sug) sug.innerHTML = "";
+        // DO NOT clear suggestions here either
       } else {
         addRawMessage("server", escapeHtml(JSON.stringify(obj)));
       }
@@ -399,9 +408,7 @@
       const msg = {type:"message", name: username, text};
       authSocket.send(JSON.stringify(msg));
       messageInput.value = "";
-      // clear suggestions once user sends
-      const sug = document.getElementById("suggestions");
-      if(sug) sug.innerHTML = "";
+      // do not client-clear suggestions here; server will broadcast updated suggestions
     } else {
       mustAuthPopup.style.display = "flex";
       setTimeout(()=> { mustAuthPopup.style.display = "none"; }, 4000);
