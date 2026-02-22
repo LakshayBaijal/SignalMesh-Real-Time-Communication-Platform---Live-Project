@@ -57,6 +57,11 @@
   }
 
   function addRawMessage(name, text, mine=false){
+
+    const placeholder = document.getElementById("chat-placeholder");
+if (placeholder) {
+  placeholder.style.display = "none";
+}
     const row = document.createElement("div");
     row.className = "msg-row " + (mine ? "me" : "other");
 
@@ -444,6 +449,7 @@ function scrollToBottom() {
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
 
 
 
