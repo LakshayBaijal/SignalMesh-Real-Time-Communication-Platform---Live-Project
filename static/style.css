@@ -131,6 +131,12 @@ body{
   color:inherit;font-size:15px;outline:none;
   word-break: break-word; /* helps long words in input */
 }
+#suggestions {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
 .send-btn{
   padding:10px 16px;border-radius:12px;background:var(--accent);border:none;color:white;font-weight:600;cursor:pointer;
   box-shadow: 0 6px 18px rgba(124,58,237,0.18);
@@ -210,3 +216,4 @@ body{
   }
 
 }
+
