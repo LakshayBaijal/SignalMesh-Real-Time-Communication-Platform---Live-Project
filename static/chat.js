@@ -261,6 +261,20 @@
       console.log("auth socket open");
       headerUser.textContent = `You: ${username}`;
       setTimeout(scrollToBottom, 100);
+      if (chatBox.children.length === 0) {
+        const welcome = document.createElement("div");
+        welcome.className = "msg-row other";
+      
+        const bubble = document.createElement("div");
+        bubble.className = "msg other";
+        bubble.innerHTML = `
+          <div class="meta">System</div>
+          👋 You're the first one here. Start the conversation!
+        `;
+
+  welcome.appendChild(bubble);
+  chatBox.appendChild(welcome);
+}
       // server will announce join
     });
 
@@ -442,6 +456,7 @@ function scrollToBottom() {
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
 
 
 
