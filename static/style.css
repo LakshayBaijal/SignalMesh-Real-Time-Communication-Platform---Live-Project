@@ -158,3 +158,42 @@ body{
   .users-section{display:none}
   .chat-area{padding:12px}
 }
+
+/* =============================== */
+/* PROPER MOBILE FULLSCREEN FIX */
+/* =============================== */
+
+@media (max-width: 768px){
+
+  body{
+    display:block;
+    padding:0;
+  }
+
+  .app{
+    max-width:100%;
+    width:100%;
+    height:100vh;
+    border-radius:0;
+  }
+
+  .chat-area{
+    padding:12px;
+  }
+
+  .chat-box{
+    padding:12px;
+  }
+
+  .msg{
+    max-width:85%;
+  }
+
+  .composer{
+    position:sticky;
+    bottom:0;
+    background:var(--bg);
+    padding-bottom:10px;
+  }
+
+}
