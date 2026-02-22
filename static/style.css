@@ -163,7 +163,16 @@ body{
 /* PROPER MOBILE FULLSCREEN FIX */
 /* =============================== */
 
+/* =============================== */
+/* PROPER MOBILE SCROLL FIX */
+/* =============================== */
+
 @media (max-width: 768px){
+
+  html, body{
+    height:100%;
+    overflow:hidden;   /* prevent body scroll */
+  }
 
   body{
     display:block;
@@ -175,14 +184,21 @@ body{
     width:100%;
     height:100vh;
     border-radius:0;
+    overflow:hidden;
   }
 
   .chat-area{
-    padding:12px;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    height:100%;
   }
 
   .chat-box{
-    padding:12px;
+    flex:1;
+    overflow-y:auto;
+    overflow-x:hidden;
+    -webkit-overflow-scrolling: touch; /* smooth iOS scroll */
   }
 
   .msg{
@@ -190,10 +206,7 @@ body{
   }
 
   .composer{
-    position:sticky;
-    bottom:0;
-    background:var(--bg);
-    padding-bottom:10px;
+    position:relative;
   }
 
 }
