@@ -1,8 +1,6 @@
-// static/chat.js (UPDATED — handles {"type":"suggestions"} properly)
+// static/chat.js
 (() => {
   const host = location.host;
-
-  // choose ws or wss based on page protocol
   const protocol = (location.protocol === "https:") ? "wss://" : "ws://";
   const anonWsUrl = protocol + host + "/ws";
 
@@ -13,16 +11,13 @@
   const typingIndicator = document.getElementById("typing-indicator");
   const headerUser = document.getElementById("header-username");
 
-  // counters
   const userCountEl = document.getElementById("user-count");
   const viewerCountEl = document.getElementById("viewer-count");
 
-  // file + emoji UI
   const fileInput = document.getElementById("file-input");
   const emojiBtn = document.getElementById("emoji-btn");
   const emojiPickerDiv = document.getElementById("emoji-picker");
 
-  // auth modal elements
   const authModal = document.getElementById("auth-modal");
   const authUsername = document.getElementById("auth-username");
   const authPassword = document.getElementById("auth-password");
@@ -33,7 +28,6 @@
   const authError = document.getElementById("auth-error");
   const authTitle = document.getElementById("auth-title");
 
-  // guest popup
   const mustAuthPopup = document.getElementById("must-auth-popup");
   const popupSignin = document.getElementById("popup-signin");
 
@@ -42,8 +36,8 @@
   let username = null;
   let token = null;
   let color = null;
-  let mode = "login"; // or signup
-  let users = {}; // name -> {name,color,lastSeen}
+  let mode = "login";
+  let users = {};
 
   function nowTime() {
     const d = new Date();
@@ -75,9 +69,7 @@
     bubble.appendChild(content);
 
     row.appendChild(bubble);
-
     chatBox.appendChild(row);
-
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
@@ -104,7 +96,6 @@
     });
   }
 
-  // escape to avoid HTML injection for user messages
   function escapeHtml(unsafe) {
     return String(unsafe || "")
       .replace(/&/g, "&amp;")
@@ -114,19 +105,13 @@
       .replace(/'/g, "&#039;");
   }
 
-  // ===== NEW: showSuggestions =====
   function showSuggestions(list){
-    // ensure list is array
     if(!Array.isArray(list) || list.length === 0) {
-      // clear suggestions container if present
       const existing = document.getElementById("suggestions");
       if(existing) existing.innerHTML = "";
       return;
     }
-
     let container = document.getElementById("suggestions");
-
-    // create container if not exists (insert above composer)
     if(!container){
       container = document.createElement("div");
       container.id = "suggestions";
@@ -136,23 +121,18 @@
       container.style.flexWrap = "wrap";
       container.style.alignItems = "center";
       container.style.justifyContent = "flex-start";
-
       const composer = document.querySelector(".composer");
       if(composer && composer.parentNode){
         composer.parentNode.insertBefore(container, composer);
       } else {
-        // fallback: append to main
         document.body.appendChild(container);
       }
     }
-
-    // Render buttons
     container.innerHTML = "";
     list.forEach(text => {
       const btn = document.createElement("button");
       btn.className = "suggestion";
       btn.textContent = text;
-      // basic inline styles (keeps same look regardless of CSS)
       btn.style.padding = "8px 12px";
       btn.style.borderRadius = "999px";
       btn.style.border = "none";
@@ -160,25 +140,19 @@
       btn.style.background = "#7c3aed";
       btn.style.color = "white";
       btn.style.fontSize = "13px";
-
       btn.onclick = function(){
-        // default behaviour: fill input, focus it
         messageInput.value = text;
         messageInput.focus();
       };
-
       container.appendChild(btn);
     });
   }
 
-  // common message handler for messages from server (both anon and auth)
   function handleServerData(data){
     let obj = null;
     try { obj = JSON.parse(data); } catch(e){ obj = null; }
 
-    // NEW: intercept suggestions BEFORE any rendering
     if(obj && obj.type === "suggestions"){
-      // show suggestions as buttons and DO NOT render as server message
       showSuggestions(obj.suggestions || []);
       return;
     }
@@ -205,7 +179,6 @@
       } else if(obj.type === "message"){
         const mine = username && obj.name === username;
         addRawMessage(obj.name, escapeHtml(obj.text), mine);
-        // Clear suggestions after a new real message is rendered (user likely consumed them)
         const sug = document.getElementById("suggestions");
         if(sug) sug.innerHTML = "";
       } else if(obj.type === "file"){
@@ -232,39 +205,29 @@
     }
   }
 
-  // ---------------- anonymous connection ----------------
   function connectAnon(){
     anonSocket = new WebSocket(anonWsUrl);
     anonSocket.addEventListener("open", () => {
-      console.log("connected anon websocket");
       headerUser.textContent = "Viewing as guest";
     });
     anonSocket.addEventListener("message", (ev) => {
       handleServerData(ev.data);
     });
-    anonSocket.addEventListener("close", () => {
-      console.log("anon socket closed");
-    });
+    anonSocket.addEventListener("close", () => {});
   }
 
-  // ---------------- authenticated connection ----------------
   function connectAuth(tkn, name, c){
     token = tkn;
     username = name;
     color = c || randomColorFromName(name);
     const url = protocol + host + "/ws/" + token;
     authSocket = new WebSocket(url);
-
     authSocket.addEventListener("open", () => {
-      console.log("auth socket open");
       headerUser.textContent = `You: ${username}`;
-      // server will announce join
     });
-
     authSocket.addEventListener("message", (ev) => {
       handleServerData(ev.data);
     });
-
     authSocket.addEventListener("close", () => {
       headerUser.textContent = "Disconnected — viewing as guest";
       authSocket = null;
@@ -272,7 +235,6 @@
     });
   }
 
-  // ---------------- auth form logic ----------------
   toggleLogin.onclick = () => { mode = "login"; authTitle.textContent = "Login to World Chat"; authError.textContent = ""; }
   toggleSignup.onclick = () => { mode = "signup"; authTitle.textContent = "Create an account"; authError.textContent = ""; }
 
@@ -316,32 +278,17 @@
     authModal.style.display = "flex";
   };
 
-  // ---------------- file upload ----------------
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if(!file) return;
-
     const formData = new FormData();
     formData.append("file", file);
-
     try {
-      const res = await fetch("/upload", {
-        method: "POST",
-        body: formData
-      });
-      if(!res.ok){
-        console.error("upload failed");
-        return;
-      }
+      const res = await fetch("/upload", { method: "POST", body: formData });
+      if(!res.ok){ console.error("upload failed"); return; }
       const data = await res.json();
-
       if(authSocket && authSocket.readyState === WebSocket.OPEN){
-        authSocket.send(JSON.stringify({
-          type: "file",
-          name: username,
-          url: data.url,
-          filename: data.filename
-        }));
+        authSocket.send(JSON.stringify({ type: "file", name: username, url: data.url, filename: data.filename }));
       } else {
         mustAuthPopup.style.display = "flex";
         setTimeout(()=> { mustAuthPopup.style.display = "none"; }, 3500);
@@ -353,53 +300,29 @@
     }
   });
 
-  // ---------------- emoji picker ----------------
   let pickerOpen = false;
   emojiBtn.onclick = () => {
-
     if(pickerOpen){
-      emojiPickerDiv.style.display = "none";
-      pickerOpen = false;
-      return;
+      emojiPickerDiv.style.display = "none"; pickerOpen = false; return;
     }
-
     emojiPickerDiv.innerHTML = "";
-
     try {
       const picker = new EmojiMart.Picker({
-        onEmojiSelect: (emoji) => {
-          messageInput.value += (emoji.native || emoji.colons || emoji.native);
-          messageInput.focus();
-        },
-        theme: "dark",
-        perLine: 8,
-        showPreview: false,
-        showSkinTones: false
+        onEmojiSelect: (emoji) => { messageInput.value += (emoji.native || emoji.colons || emoji.native); messageInput.focus(); },
+        theme: "dark", perLine: 8, showPreview: false, showSkinTones: false
       });
-      emojiPickerDiv.appendChild(picker);
-      emojiPickerDiv.style.display = "block";
-      pickerOpen = true;
-    } catch (err) {
-      console.error("emoji picker load error", err);
-      messageInput.value += "😊";
-    }
+      emojiPickerDiv.appendChild(picker); emojiPickerDiv.style.display = "block"; pickerOpen = true;
+    } catch (err) { console.error("emoji picker load error", err); messageInput.value += "😊"; }
   };
 
-  // ---------------- send flow ----------------
   function sendMessage(){
     const text = messageInput.value.trim();
     if(!text) return;
-
-    if(text.length > 5000){
-      alert("Message is too long (limit 5000 characters). Please shorten it.");
-      return;
-    }
-
+    if(text.length > 5000){ alert("Message is too long (limit 5000 characters)."); return; }
     if(authSocket && authSocket.readyState === WebSocket.OPEN){
       const msg = {type:"message", name: username, text};
       authSocket.send(JSON.stringify(msg));
       messageInput.value = "";
-      // clear suggestions once user sends
       const sug = document.getElementById("suggestions");
       if(sug) sug.innerHTML = "";
     } else {
@@ -410,10 +333,7 @@
 
   sendBtn.addEventListener("click", sendMessage);
   messageInput.addEventListener("keydown", (e) => {
-    if(e.key === "Enter" && !e.shiftKey){
-      e.preventDefault();
-      sendMessage();
-    } else {
+    if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); } else {
       if(authSocket && authSocket.readyState === WebSocket.OPEN){
         try { authSocket.send(JSON.stringify({type:"typing", name: username})); } catch(e){}
       }
@@ -421,14 +341,9 @@
   });
 
   window.addEventListener("beforeunload", () => {
-    try {
-      if(authSocket && authSocket.readyState === WebSocket.OPEN){
-        authSocket.close();
-      }
-    } catch(e){}
+    try { if(authSocket && authSocket.readyState === WebSocket.OPEN){ authSocket.close(); } } catch(e){}
   });
 
-  // init
   connectAnon();
   authModal.style.display = "flex";
   authUsername.focus();
