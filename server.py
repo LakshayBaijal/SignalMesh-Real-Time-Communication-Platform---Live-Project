@@ -1,50 +1,68 @@
 # server.py
 import os
+import json
+import shutil
+import uuid
 import logging
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from datetime import datetime, timedelta
+from typing import Generator, Optional
+
+from fastapi import (
+    FastAPI,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    Depends,
+    HTTPException,
+    status,
+    UploadFile,
+    File,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from typing import Generator
+from jose import jwt, JWTError
 
-# Try to import DB pieces from your database.py (this file should exist in repo)
-# It should provide SessionLocal, engine, Base, User, Message
+# Import database artifacts from your database.py (must exist in repo)
+# database.py should define: SessionLocal, engine, Base, User, Message
 try:
-    from database import SessionLocal, engine, Base, User, Message  # file: database.py
+    from database import SessionLocal, engine, Base, User, Message
 except Exception as e:
     raise RuntimeError(
-        "Failed to import from database.py. Make sure database.py exists and exports "
-        "SessionLocal, engine, Base, User, Message. Import error: " + str(e)
+        "Failed to import from database.py. Ensure database.py provides SessionLocal, engine, Base, User, Message. Import error: "
+        + str(e)
     )
 
-# Create tables on startup (safe both locally & on Render)
+# create tables (idempotent)
 Base.metadata.create_all(bind=engine)
 
-# Logging
+# logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("signalmesh")
 
-# Password hashing
+# password hashing (bcrypt backend). We'll handle 72-byte limitation.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+# JWT / auth settings
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week token by default
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+# static / uploads
+STATIC_DIR = "static"
+UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # FastAPI app
 app = FastAPI(title="Signal Mesh")
 
-# Serve static files (make sure your chat.html, chat.js, style.css are in ./static/)
-if not os.path.isdir("static"):
-    # In case user kept static files at repo root, create a hint log.
-    logger.info("No 'static' directory found — ensure your static files are in ./static/")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# mount static (chat.html, chat.js, style.css should be at ./static/)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Dependency to get DB session
+
+# --- DB dependency ---
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
@@ -52,110 +70,318 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
-# Health check
-@app.get("/healthz")
-def healthz():
+
+# --- helpers ---
+def _truncate_for_bcrypt(password: str) -> str:
+    """
+    Return a version safe for bcrypt (max 72 bytes).
+    Two options:
+      - truncate silently (used here), OR
+      - raise an exception to ask frontend to send smaller password.
+    We'll *reject* very long raw input to avoid accidental huge strings.
+    """
+    b = password.encode("utf-8")
+    if len(b) > 72:
+        # Option: raise HTTPException instead to force client-side change
+        # Here we choose to reject so user sees clear message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password too long. Maximum 72 bytes are allowed.",
+        )
+    return password
+
+
+def hash_password(password: str) -> str:
+    pw = _truncate_for_bcrypt(password)
+    return pwd_context.hash(pw)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return pwd_context.verify(plain, hashed)
+    except Exception:
+        return False
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded
+
+
+def decode_access_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+
+# --- REST endpoints ---
+
+@app.get("/health")
+def health():
     return {"status": "ok"}
 
-# Serve the chat UI (expects static/chat.html in repo)
-@app.get("/", response_class=FileResponse)
-def index():
-    index_path = os.path.join("static", "chat.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path, media_type="text/html")
-    # fallback: minimal response
-    return JSONResponse({"msg": "Place chat.html in ./static/ and redeploy."}, status_code=200)
 
-# Signup route (expects JSON: { "username": "...", "password": "..." })
 @app.post("/signup")
 def signup(payload: dict, db: Session = Depends(get_db)):
-    """
-    Signup endpoint:
-      - Expects JSON body with 'username' and 'password'
-      - Returns 201 on success
-      - Returns 400 if user exists or input invalid
-    """
-    username = payload.get("username")
-    password = payload.get("password")
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
 
     if not username or not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username & password required")
+        raise HTTPException(status_code=400, detail="username & password required")
 
-    # check existing
-    existing = db.query(User).filter(User.username == username).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user already exists")
-
+    # if password too long, _truncate_for_bcrypt will raise a 400 HTTPException
     hashed = hash_password(password)
-    user = User(username=username, password=hashed)
-    db.add(user)
+
+    new_user = User(username=username, password=hashed)
+    db.add(new_user)
     try:
         db.commit()
-        db.refresh(user)
+        db.refresh(new_user)
     except IntegrityError as e:
         db.rollback()
-        # This covers race conditions / unique constraint
-        logger.warning("IntegrityError on signup: %s", e)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user already exists")
+        logger.info("Signup IntegrityError: %s", e)
+        raise HTTPException(status_code=400, detail="user already exists")
     except Exception as e:
         db.rollback()
-        logger.exception("Unexpected error during signup")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="internal server error")
+        logger.exception("Unexpected signup error")
+        raise HTTPException(status_code=500, detail="internal server error")
 
-    return {"id": user.id, "username": user.username}
+    return {"id": new_user.id, "username": new_user.username}
 
-# Simple login endpoint (returns basic JSON; adapt to tokens if you use JWT)
+
 @app.post("/login")
 def login(payload: dict, db: Session = Depends(get_db)):
-    username = payload.get("username")
-    password = payload.get("password")
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
 
     if not username or not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username & password required")
+        raise HTTPException(status_code=400, detail="username & password required")
 
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+        raise HTTPException(status_code=401, detail="invalid credentials")
 
-    # Return minimal user info; replace with JWT if needed
-    return {"id": user.id, "username": user.username, "msg": "login successful"}
+    token = create_access_token({"sub": user.username})
+    return {"token": token, "username": user.username}
 
-# Message endpoints (simple example that fits a chat UI)
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Accept a file upload and return JSON with url and filename for chat to share.
+    Files are saved into ./static/uploads/<uuid>_<safe_filename>
+    """
+    filename = file.filename or "upload"
+    # sanitize filename very simply
+    safe_name = "".join(c for c in filename if c.isalnum() or c in (" ", ".", "_", "-")).strip()
+    unique = f"{uuid.uuid4().hex}_{safe_name}"
+    dest = os.path.join(UPLOADS_DIR, unique)
+
+    try:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        logger.exception("upload failed")
+        raise HTTPException(status_code=500, detail="upload failed")
+
+    url = f"/static/uploads/{unique}"
+    return {"url": url, "filename": safe_name}
+
+
 @app.get("/messages")
 def get_messages(limit: int = 100, db: Session = Depends(get_db)):
     q = db.query(Message).order_by(Message.timestamp.desc()).limit(limit).all()
-    # return messages newest-first reversed for client convenience
-    return {"messages": [ {"id": m.id, "username": m.username, "content": m.content, "timestamp": m.timestamp.isoformat()} for m in reversed(q) ]}
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "username": m.username,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat(),
+            }
+            for m in reversed(q)
+        ]
+    }
 
-@app.post("/messages")
-def post_message(payload: dict, db: Session = Depends(get_db)):
-    username = payload.get("username", "anonymous")
-    content = payload.get("content", "")
-    if not content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empty message")
 
-    msg = Message(username=username, content=content)
-    db.add(msg)
+# --- WebSocket chat infra ---
+# Store connections
+auth_clients: dict[str, WebSocket] = {}   # username -> websocket
+anon_clients: list[WebSocket] = []        # list of anonymous websockets
+
+
+async def broadcast_json(obj: dict):
+    text = json.dumps(obj)
+    to_remove_auth = []
+    for uname, ws in list(auth_clients.items()):
+        try:
+            await ws.send_text(text)
+        except Exception:
+            to_remove_auth.append(uname)
+    for uname in to_remove_auth:
+        auth_clients.pop(uname, None)
+
+    to_remove_anon = []
+    for ws in list(anon_clients):
+        try:
+            await ws.send_text(text)
+        except Exception:
+            to_remove_anon.append(ws)
+    for ws in to_remove_anon:
+        try:
+            anon_clients.remove(ws)
+        except Exception:
+            pass
+
+
+async def broadcast_user_count():
+    obj = {"type": "user_count", "auth": len(auth_clients), "total": len(auth_clients) + len(anon_clients)}
+    await broadcast_json(obj)
+
+
+# Anonymous WS path: /ws
+@app.websocket("/ws")
+async def websocket_anon(ws: WebSocket):
+    await ws.accept()
+    anon_clients.append(ws)
     try:
-        db.commit()
-        db.refresh(msg)
+        # send basic welcome (optional)
+        await broadcast_user_count()
+        while True:
+            data = await ws.receive_text()
+            # anonymous messages are not allowed to post — show server message to guide
+            # but we will forward raw strings to viewers as server: "Guest message"
+            # If frontend expects raw colon-separated messages, keep simple behavior:
+            try:
+                # if frontend sends JSON, try forward as-is to auth clients
+                json.loads(data)  # just check it's JSON
+                await broadcast_json({"type": "raw", "data": data})
+            except Exception:
+                # plain text -> broadcast as server message
+                await broadcast_json({"type": "message", "name": "guest", "text": data})
+    except WebSocketDisconnect:
+        try:
+            anon_clients.remove(ws)
+        except Exception:
+            pass
+        await broadcast_user_count()
     except Exception:
-        db.rollback()
-        logger.exception("Failed to write message")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="failed to save message")
+        logger.exception("anon ws error")
+        try:
+            anon_clients.remove(ws)
+        except Exception:
+            pass
+        await broadcast_user_count()
 
-    return {"id": msg.id, "username": msg.username, "content": msg.content, "timestamp": msg.timestamp.isoformat()}
+
+# Auth WS path: /ws/{token}
+@app.websocket("/ws/{token}")
+async def websocket_auth(ws: WebSocket, token: str):
+    # validate token
+    try:
+        payload = decode_access_token(token)
+        username = payload.get("sub")
+        if not username:
+            await ws.close(code=1008)
+            return
+    except HTTPException:
+        await ws.close(code=1008)
+        return
+
+    # accept and register
+    await ws.accept()
+    # if user already connected, replace old connection
+    prev = auth_clients.get(username)
+    if prev:
+        try:
+            await prev.close()
+        except Exception:
+            pass
+    auth_clients[username] = ws
+
+    # announce join
+    await broadcast_json({"type": "join", "name": username})
+    await broadcast_user_count()
+
+    try:
+        # send recent messages to this user? (client may call /messages instead)
+        while True:
+            raw = await ws.receive_text()
+            # try parse JSON payload
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                obj = {"type": "message", "text": raw, "name": username}
+
+            # handle typing indicator
+            t = obj.get("type")
+            if t == "typing":
+                await broadcast_json({"type": "typing", "name": username})
+                continue
+            elif t == "message":
+                text = obj.get("text", "")[:2000]
+                # persist into DB
+                try:
+                    db = SessionLocal()
+                    msg = Message(username=username, content=text)
+                    db.add(msg)
+                    db.commit()
+                    db.refresh(msg)
+                except Exception:
+                    db.rollback()
+                    logger.exception("failed to save message")
+                finally:
+                    db.close()
+                await broadcast_json({"type": "message", "name": username, "text": text})
+                continue
+            elif t == "file":
+                # expect {type:"file", name:username, url:..., filename:...}
+                await broadcast_json({"type": "file", "name": username, "url": obj.get("url"), "filename": obj.get("filename")})
+                continue
+            elif t == "raw":
+                # forward raw server content
+                await broadcast_json({"type": "raw", "data": obj.get("data")})
+                continue
+            else:
+                # unknown -> echo as message
+                await broadcast_json({"type": "message", "name": username, "text": obj.get("text", str(obj))})
+    except WebSocketDisconnect:
+        # remove this client
+        try:
+            if auth_clients.get(username) is ws:
+                auth_clients.pop(username, None)
+        except Exception:
+            pass
+        await broadcast_json({"type": "leave", "name": username})
+        await broadcast_user_count()
+    except Exception:
+        logger.exception("auth ws error")
+        try:
+            if auth_clients.get(username) is ws:
+                auth_clients.pop(username, None)
+        except Exception:
+            pass
+        await broadcast_user_count()
 
 
-# Generic exception handler to make logs clearer in Render
+# catch-all exception handler for clearer logs
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled exception for request %s: %s", request.url, exc)
+    logger.exception("unhandled exception for %s: %s", request.url, exc)
     return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
-# Uvicorn startup: Render exposes $PORT; bind to it.
+
+# run with HOST/PORT env. Render provides $PORT
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", 8000))
-    # Important: host 0.0.0.0 so Render can route in
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
