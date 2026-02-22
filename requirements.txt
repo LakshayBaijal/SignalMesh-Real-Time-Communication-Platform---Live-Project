@@ -10,3 +10,4 @@ python-multipart
 passlib[argon2]
 numpy
 bcrypt
+argon2-cffi
