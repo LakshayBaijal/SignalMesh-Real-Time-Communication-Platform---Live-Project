@@ -17,3 +17,8 @@ https://signal-mesh.onrender.com/
 - SQLAlchemy
 - JWT
 - Render
+
+- Run Locally
+```br
+uvicorn server:app --reload
+```
