@@ -78,7 +78,7 @@
 
     chatBox.appendChild(row);
 
-    chatBox.scrollTop = chatBox.scrollHeight;
+    scrollToBottom();
   }
 
   function addSystemNotice(text){
@@ -258,11 +258,13 @@
     authSocket.addEventListener("open", () => {
       console.log("auth socket open");
       headerUser.textContent = `You: ${username}`;
+      setTimeout(scrollToBottom, 100);
       // server will announce join
     });
 
     authSocket.addEventListener("message", (ev) => {
       handleServerData(ev.data);
+      scrollToBottom();
     });
 
     authSocket.addEventListener("close", () => {
@@ -427,9 +429,15 @@
       }
     } catch(e){}
   });
-
+  
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    chatBox.scrollTop = chatBox.scrollHeight;
+  });
+}
   // init
   connectAnon();
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
