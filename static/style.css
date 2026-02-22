@@ -157,6 +157,15 @@ body{
 .modal-actions{display:flex;justify-content:flex-end}
 #name-start{padding:10px 14px;border-radius:10px;border:none;background:var(--accent);color:white;cursor:pointer}
 
+.chat-placeholder{
+  margin:auto;
+  text-align:center;
+  color:var(--muted);
+  font-size:18px;
+  opacity:0.7;
+}
+
+
 /* responsive */
 @media (max-width:880px){
   .app{flex-direction:column;height:92vh}
@@ -216,4 +225,5 @@ body{
   }
 
 }
+
 
