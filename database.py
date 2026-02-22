@@ -1,37 +1,48 @@
-# database.py
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+# database.py  (replace your current file)
+import os
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
-import os
 
-# Use a SQLite file in repo root (Render ephemeral filesystem — ok for testing)
-DB_FILENAME = os.environ.get("CHAT_DB", "chat.db")
-DATABASE_URL = f"sqlite:///{DB_FILENAME}"
+# Use environment DATABASE_URL if present (Render will provide this for managed Postgres)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./signalmesh.db")
 
-# create engine (sqlite needs check_same_thread=False for multiple threads)
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
+# If using sqlite local file, keep check_same_thread
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        echo=False,
+    )
+else:
+    # PostgreSQL / other drivers: do not pass sqlite-only args.
+    # pool_pre_ping helps keep connections healthy on cloud DBs.
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        echo=False,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
-
+# Users table
 class User(Base):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(100), unique=True, index=True, nullable=False)
-    password = Column(String(256), nullable=False)  # store hashed password
+    username = Column(String, unique=True, index=True)
+    password = Column(String)
 
-
+# Messages table
 class Message(Base):
     __tablename__ = "messages"
+
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(100), index=True, nullable=False)
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    username = Column(String, index=True)
+    content = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
-
-# IMPORTANT: ensure tables exist when module is imported
+# Create database and tables automatically (safe for both sqlite and postgres)
 Base.metadata.create_all(bind=engine)
