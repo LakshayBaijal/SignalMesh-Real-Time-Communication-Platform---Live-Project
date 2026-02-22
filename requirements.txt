@@ -8,4 +8,4 @@ websockets
 groq
 python-multipart
 passlib[argon2]
-
+numpy
