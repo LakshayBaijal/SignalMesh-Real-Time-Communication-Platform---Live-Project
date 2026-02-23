@@ -42,7 +42,11 @@
         <div id="typing-indicator" class="typing-indicator"></div>
       </header>
 
-      <section id="chat-box" class="chat-box" aria-live="polite"></section>
+      <section id="chat-box" class="chat-box" aria-live="polite">
+  <div id="chat-placeholder" class="chat-placeholder">
+    Begin your chat 👋
+  </div>
+</section>
 
       <form id="message-form" class="composer" onsubmit="return false;">
         <!-- emoji + attach + send -->
@@ -96,5 +100,6 @@
   <script src="/static/chat.js"></script>
 </body>
 </html>
+
 
 
