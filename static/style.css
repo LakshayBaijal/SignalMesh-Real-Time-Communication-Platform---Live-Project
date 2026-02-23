@@ -226,12 +226,13 @@ body{
 
 }
 
-.chat-placeholder{
-  margin:auto;
-  text-align:center;
-  color:var(--muted);
-  font-size:18px;
-  opacity:0.7;
+.chat-box:empty::before {
+  content: "Begin your chat 👋";
+  color: var(--muted);
+  font-size: 18px;
+  opacity: 0.6;
+  margin: auto;
 }
+
 
 
