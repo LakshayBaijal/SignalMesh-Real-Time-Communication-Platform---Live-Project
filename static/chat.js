@@ -57,8 +57,6 @@
   }
 
   function addRawMessage(name, text, mine=false){
-  const emptyState = document.getElementById("empty-state");
-if (emptyState) emptyState.style.display = "none";
 
     
     const row = document.createElement("div");
@@ -448,6 +446,7 @@ function scrollToBottom() {
   authModal.style.display = "flex";
   authUsername.focus();
 })();
+
 
 
 
