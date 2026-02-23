@@ -230,16 +230,8 @@ body{
   position: relative;
 }
 
-.empty-state {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: var(--muted);
-  font-size: 20px;
-  opacity: 0.6;
-  pointer-events: none;
-}
+
+
 
 
 
