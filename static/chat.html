@@ -21,7 +21,6 @@
       <div class="users-section">
         <div class="section-title">Online</div>
 
-        <!-- user / viewer counters -->
         <div id="user-count" style="font-size:13px;color:var(--muted);margin-bottom:8px;">
           Online: 0 users
         </div>
@@ -37,29 +36,38 @@
     </aside>
 
     <main class="chat-area">
+
       <header class="chat-header">
         <div id="header-username" class="header-username"></div>
         <div id="typing-indicator" class="typing-indicator"></div>
       </header>
 
-     <section id="chat-box" class="chat-box" aria-live="polite"></section>
+      <!-- EMPTY STATE (safe implementation) -->
+      <div id="empty-state" class="empty-state">
+        Begin your chat 👋
+      </div>
+
+      <section id="chat-box" class="chat-box" aria-live="polite"></section>
 
       <form id="message-form" class="composer" onsubmit="return false;">
-        <!-- emoji + attach + send -->
         <button type="button" id="emoji-btn" class="send-btn" title="Emoji">😀</button>
         <input type="file" id="file-input" style="display:none" />
         <button type="button" onclick="document.getElementById('file-input').click()" class="send-btn" title="Attach">📎</button>
 
-        <input id="message-input" class="message-input" placeholder="Say something to the world..." autocomplete="off" />
+        <input id="message-input" class="message-input"
+               placeholder="Say something to the world..."
+               autocomplete="off" />
+
         <button id="send-btn" class="send-btn">Send</button>
       </form>
 
-      <!-- emoji picker container -->
-      <div id="emoji-picker" style="position:fixed; bottom:96px; right:40px; display:none; z-index:9999;"></div>
+      <div id="emoji-picker"
+           style="position:fixed; bottom:96px; right:40px; display:none; z-index:9999;">
+      </div>
     </main>
   </div>
 
-  <!-- auth modal (login / signup) -->
+  <!-- AUTH MODAL -->
   <div id="auth-modal" class="modal">
     <div class="modal-card">
       <h2 id="auth-title">Welcome — Sign in or Sign up</h2>
@@ -72,31 +80,51 @@
       <div id="auth-forms" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
         <input id="auth-username" placeholder="username" maxlength="32" />
         <input id="auth-password" placeholder="password" type="password" maxlength="64" />
+
         <div style="display:flex;justify-content:space-between;gap:8px">
-          <button id="auth-submit" style="flex:1;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;">Proceed</button>
-          <button id="continue-guest" style="flex:1;padding:10px;border-radius:8px;">Continue as guest</button>
+          <button id="auth-submit"
+                  style="flex:1;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;">
+            Proceed
+          </button>
+
+          <button id="continue-guest"
+                  style="flex:1;padding:10px;border-radius:8px;">
+            Continue as guest
+          </button>
         </div>
-        <div id="auth-error" style="color:#ffb4b4;font-size:13px;min-height:18px"></div>
+
+        <div id="auth-error"
+             style="color:#ffb4b4;font-size:13px;min-height:18px"></div>
       </div>
     </div>
   </div>
 
-  <!-- popup for guest send -->
-  <div id="must-auth-popup" class="modal" style="display:none;background:transparent;align-items:flex-end;justify-content:center;pointer-events:none">
-    <div class="modal-card" style="width:320px;pointer-events:auto;margin-bottom:40px;">
+  <!-- GUEST POPUP -->
+  <div id="must-auth-popup" class="modal"
+       style="display:none;background:transparent;align-items:flex-end;justify-content:center;pointer-events:none">
+
+    <div class="modal-card"
+         style="width:320px;pointer-events:auto;margin-bottom:40px;">
+
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><strong>Sign in required</strong><div style="color:var(--muted);font-size:13px">You must login or sign up to send messages</div></div>
-        <div><button id="popup-signin" style="background:var(--accent);color:white;border:none;padding:8px;border-radius:8px">Sign in</button></div>
+        <div>
+          <strong>Sign in required</strong>
+          <div style="color:var(--muted);font-size:13px">
+            You must login or sign up to send messages
+          </div>
+        </div>
+
+        <div>
+          <button id="popup-signin"
+                  style="background:var(--accent);color:white;border:none;padding:8px;border-radius:8px">
+            Sign in
+          </button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- emoji-mart browser bundle -->
   <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
   <script src="/static/chat.js"></script>
 </body>
 </html>
-
-
-
-
