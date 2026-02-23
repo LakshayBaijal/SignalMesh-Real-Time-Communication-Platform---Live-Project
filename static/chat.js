@@ -57,8 +57,6 @@
   }
 
   function addRawMessage(name, text, mine=false){
-
-    
     const row = document.createElement("div");
     row.className = "msg-row " + (mine ? "me" : "other");
 
@@ -80,7 +78,7 @@
 
     chatBox.appendChild(row);
 
-    scrollToBottom();
+    chatBox.scrollTop = chatBox.scrollHeight;
   }
 
   function addSystemNotice(text){
@@ -140,14 +138,12 @@
       container.style.justifyContent = "flex-start";
 
       const composer = document.querySelector(".composer");
-      if (composer && composer.parentNode) {
+      if(composer && composer.parentNode){
         composer.parentNode.insertBefore(container, composer);
+      } else {
+        // fallback: append to main
+        document.body.appendChild(container);
       }
-
-      setTimeout(() => {
-  const chatBox = document.getElementById("chat-box");
-  chatBox.scrollTop = chatBox.scrollHeight;
-    }, 50);
     }
 
     // Render buttons
@@ -262,15 +258,11 @@
     authSocket.addEventListener("open", () => {
       console.log("auth socket open");
       headerUser.textContent = `You: ${username}`;
-      setTimeout(scrollToBottom, 100);
-
-}
       // server will announce join
     });
 
     authSocket.addEventListener("message", (ev) => {
       handleServerData(ev.data);
-      scrollToBottom();
     });
 
     authSocket.addEventListener("close", () => {
@@ -435,23 +427,9 @@
       }
     } catch(e){}
   });
-  
-function scrollToBottom() {
-  requestAnimationFrame(() => {
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
-}
+
   // init
   connectAnon();
   authModal.style.display = "flex";
   authUsername.focus();
 })();
-
-
-
-
-
-
-
-
-
