@@ -226,13 +226,6 @@ body{
 
 }
 
-.chat-box:empty::before {
-  content: "Begin your chat 👋";
-  color: var(--muted);
-  font-size: 18px;
-  opacity: 0.6;
-  margin: auto;
-}
 
 
 
