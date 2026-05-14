@@ -123,7 +123,7 @@ k6 run .\benchmarks\ws_stress.js --out json=.\benchmarks\ws_stress.json *> .\ben
 
 Below are **sample metrics already present in this repository’s benchmark outputs** (generated on **2026-05-14**). Treat them as *environment-dependent* (Render free tier varies by region/time), and re-run to publish your “official” numbers.
 
-### HTTP (k6 `http_load.js`) — sample
+### HTTP (k6 `http_load.js`)
 From `benchmarks/http_load.log`:
 - **Total requests:** `50`
 - **Request rate:** `~1.166 req/s`
@@ -132,7 +132,7 @@ From `benchmarks/http_load.log`:
 
 **Interpretation:** Under light load on a free-tier deployment, `/ping` tends to sit around ~0.3–0.4s median latency, with occasional slower spikes.
 
-### WebSocket (k6 `ws_load.js`) — sample
+### WebSocket (k6 `ws_load.js`)
 From `benchmarks/ws_load.log`:
 - **WebSocket connect time (`ws_connect_time_ms`):** `avg ~1.06 s` (min ~998 ms, max ~1.14 s)
 - **WebSocket round-trip (`ws_roundtrip_ms`):** `avg ~338 ms` (min ~299 ms, max ~388 ms)
